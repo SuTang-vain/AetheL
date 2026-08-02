@@ -202,6 +202,31 @@ test('convertKnowledgeToCandidates 按证据/推断/不确定/摘要/要点映�
   assert.equal(evidence?.sourceUrl, 'https://www.bilibili.com/video/BV1xx411c7mD')
 })
 
+test('convertKnowledgeToCandidates 兼容扁平返回形态', () => {
+  const flatItem = {
+    id: 'flat-item-1',
+    source: {
+      platform: 'bilibili',
+      originalUrl: 'https://www.bilibili.com/video/BV1GJ411x7h7',
+    },
+    title: '扁平形态知识项',
+    summary: '这是扁平形态的来源摘要，直接挂在顶层。',
+    keyPoints: ['要点一', '要点二', '要点三', '要点四'],
+    oneMinuteTakeaway: '一分钟理解：直接抓住核心。',
+    actionSuggestion: '下一步：去实践。',
+  }
+  const candidates = convertKnowledgeToCandidates(flatItem)
+  assert.equal(candidates.length, 6)
+  assert.equal(candidates.filter((item) => item.title === '来源摘要').length, 1)
+  assert.equal(candidates.filter((item) => item.title === '要点').length, 3)
+  assert.equal(candidates.filter((item) => item.title === '一分钟理解').length, 1)
+  assert.equal(candidates.filter((item) => item.title === '下一步行动').length, 1)
+  const summary = candidates.find((item) => item.title === '来源摘要')
+  assert.equal(summary?.sourceUrl, 'https://www.bilibili.com/video/BV1GJ411x7h7')
+  const takeaway = candidates.find((item) => item.title === '一分钟理解')
+  assert.equal(takeaway?.content, '一分钟理解：直接抓住核心。')
+})
+
 test('convertKnowledgeToCandidates 对非对象输入宽容', () => {
   assert.deepEqual(convertKnowledgeToCandidates(null), [])
   assert.deepEqual(convertKnowledgeToCandidates({}), [])

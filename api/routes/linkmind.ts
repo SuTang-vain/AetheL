@@ -16,7 +16,8 @@ import { getRuntimeAIConfig } from './ai.js'
 const router = Router()
 
 const LINKMIND_PROXY_TIMEOUT_MS = Number(process.env.LINKMIND_PROXY_TIMEOUT_MS || 15_000)
-const LINKMIND_IMPORT_TIMEOUT_MS = Number(process.env.LINKMIND_IMPORT_TIMEOUT_MS || 120_000)
+// 导入创建同步包含 inspect（yt-dlp 字幕）与三层 AI 提取（降级模式可能重试），放宽到 240s
+const LINKMIND_IMPORT_TIMEOUT_MS = Number(process.env.LINKMIND_IMPORT_TIMEOUT_MS || 240_000)
 
 async function proxyToLinkMind(
   upstreamPath: string,
@@ -240,6 +241,16 @@ router.get('/imports/:importId', async (req: Request, res: Response) => {
   } catch (error: unknown) {
     console.error('LinkMind import poll error:', error)
     res.status(500).json({ success: false, error: (error as Error).message || 'LinkMind import poll error' })
+  }
+})
+
+router.get('/knowledge-items', async (_req: Request, res: Response) => {
+  try {
+    const { status, body } = await proxyToLinkMind('/api/v1/knowledge-items')
+    res.status(status).json(body)
+  } catch (error: unknown) {
+    console.error('LinkMind knowledge items error:', error)
+    res.status(500).json({ success: false, error: (error as Error).message || 'LinkMind knowledge items error' })
   }
 })
 

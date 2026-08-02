@@ -54,6 +54,7 @@ interface LinkMindKnowledgeItem {
     platform?: string
     originalUrl?: string
   }
+  // 嵌套形态（契约文档 v1 假设；部分端点可能返回）
   distillation?: {
     sourceSummary?: string
     evidenceUnits?: LinkMindEvidenceUnit[]
@@ -63,6 +64,13 @@ interface LinkMindKnowledgeItem {
   article?: {
     keyPoints?: Array<LinkMindTextItem | string>
   }
+  // 扁平形态（GET /knowledge-items/:id 实际返回）
+  summary?: string
+  articleMarkdown?: string
+  keyPoints?: Array<LinkMindTextItem | string>
+  oneMinuteTakeaway?: string
+  reflectionQuestion?: string
+  actionSuggestion?: string
 }
 
 interface LinkMindConfig {
@@ -132,9 +140,9 @@ export async function fetchLinkMindConfig(): Promise<LinkMindConfig> {
 
 /**
  * 把 LinkMind 三层产出转换为候选气泡（纯函数，可单测）。
- * 映射规则见 docs/linkmind-integration.md §5.4：
- * sourceSummary → 摘要气泡；evidenceUnits → 证据气泡；
- * inferences → 推断气泡；uncertainties → 开放问题气泡；keyPoints → 要点气泡。
+ * 映射规则见 docs/linkmind-integration.md §5.4，兼容两种响应形态：
+ * - 嵌套形态：distillation.evidenceUnits / inferences / uncertainties / article.keyPoints
+ * - 扁平形态（实际 API）：summary / keyPoints / oneMinuteTakeaway / actionSuggestion
  */
 export function convertKnowledgeToCandidates(raw: unknown, sourceMeta?: Pick<ImportedSourceMeta, 'url' | 'platform' | 'accessedAt'>): LinkCandidateBubble[] {
   const item = raw as LinkMindKnowledgeItem | null | undefined
@@ -157,24 +165,32 @@ export function convertKnowledgeToCandidates(raw: unknown, sourceMeta?: Pick<Imp
     })
   }
 
+  // 嵌套形态：证据蒸馏的细分产出
   if (distillation?.sourceSummary) {
     push('来源摘要', distillation.sourceSummary, '来源摘要', 'LinkMind 证据蒸馏的原文摘要')
   }
-
   for (const unit of distillation?.evidenceUnits || []) {
     push('证据', unit?.content || '', '外部证据', `证据类型：${unit?.evidenceType || 'TRANSCRIPT'}`, unit?.evidenceType)
   }
-
   for (const inference of distillation?.inferences || []) {
     push('推断', textOf(inference), '推断', 'AI 基于证据作出的推断（非原文事实）')
   }
-
   for (const uncertainty of distillation?.uncertainties || []) {
     push('不确定', textOf(uncertainty), '问题', '证据中的不确定性或待澄清的开放问题')
   }
 
-  for (const keyPoint of (article?.keyPoints || []).slice(0, 3)) {
+  // 扁平形态：当前 GET /knowledge-items/:id 的实际返回
+  if (item?.summary && !distillation?.sourceSummary) {
+    push('来源摘要', item.summary, '来源摘要', 'LinkMind 对内容的语义摘要')
+  }
+  for (const keyPoint of (item?.keyPoints || article?.keyPoints || []).slice(0, 3)) {
     push('要点', textOf(keyPoint), '要点', '知识文章的关键点')
+  }
+  if (item?.oneMinuteTakeaway) {
+    push('一分钟理解', item.oneMinuteTakeaway, '要点', 'AI 提炼的一分钟认知')
+  }
+  if (item?.actionSuggestion) {
+    push('下一步行动', item.actionSuggestion, '行动', 'AI 建议的最小认知行动')
   }
 
   return candidates
