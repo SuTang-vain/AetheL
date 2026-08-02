@@ -16,6 +16,8 @@ import {
   Key,
   Loader2,
   Palette,
+  Plus,
+  Puzzle,
   Save,
   ServerCog,
   Settings2,
@@ -27,6 +29,7 @@ import {
 import { apiFetch } from '@/lib/apiClient'
 import { usePersistenceStore } from '@/stores/persistenceStore'
 import { useSettingsStore, type AIProvider, type AIProviderSelection, defaultBaseUrls } from '@/stores/settingsStore'
+import { usePluginStore } from '@/stores/pluginStore'
 
 interface ProviderMeta {
   id: AIProviderSelection
@@ -58,7 +61,7 @@ interface AIMetric {
   createdAt: string
 }
 
-type SettingsSectionKey = 'ai' | 'storage' | 'appearance' | 'activity' | 'about'
+type SettingsSectionKey = 'ai' | 'storage' | 'plugins' | 'appearance' | 'activity' | 'about'
 
 interface StatusMessage {
   type: 'success' | 'error' | 'info'
@@ -110,6 +113,7 @@ const settingsSections: Array<{
 }> = [
   { id: 'ai', label: 'AI 引擎', description: '服务商、模型与连接状态', icon: ServerCog },
   { id: 'storage', label: '数据与存储', description: 'Markdown 原子与工作区文件', icon: Database },
+  { id: 'plugins', label: '插件', description: '安装、启用与配置扩展能力', icon: Puzzle },
   { id: 'appearance', label: '外观与性能', description: '动效、色彩和低性能偏好', icon: Palette },
   { id: 'activity', label: '活动记录', description: '保存、测试和运行状态', icon: Activity },
   { id: 'about', label: '关于', description: '版本、许可证与仓库信息', icon: Info },
@@ -214,6 +218,13 @@ export default function Settings() {
   const [isTesting, setIsTesting] = useState(false)
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null)
   const [savedSignature, setSavedSignature] = useState('')
+  const [pluginBaseUrl, setPluginBaseUrl] = useState('')
+  const [pluginPollInterval, setPluginPollInterval] = useState('2000')
+  const [pluginPollTimeout, setPluginPollTimeout] = useState('120000')
+  const [pluginSaving, setPluginSaving] = useState(false)
+  const [pluginTesting, setPluginTesting] = useState(false)
+  const [pluginMessage, setPluginMessage] = useState<StatusMessage | null>(null)
+  const { plugins, loadPlugins, installPlugin, uninstallPlugin, updatePlugin } = usePluginStore()
 
   const sectionParam = searchParams.get('section') as SettingsSectionKey | null
   const activeSection = settingsSections.some((section) => section.id === sectionParam) ? sectionParam! : 'ai'
@@ -317,6 +328,175 @@ export default function Settings() {
   const setSection = (section: SettingsSectionKey) => {
     setSearchParams({ section })
   }
+
+  useEffect(() => {
+    loadPlugins()
+  }, [loadPlugins])
+
+  useEffect(() => {
+    const linkmind = plugins.find((item) => item.manifest.id === 'linkmind')?.state
+    if (linkmind) {
+      setPluginBaseUrl(linkmind.config.baseUrl || '')
+      setPluginPollInterval(String(linkmind.config.pollIntervalMs || 2000))
+      setPluginPollTimeout(String(linkmind.config.pollTimeoutMs || 120000))
+    }
+  }, [plugins])
+
+  const savePluginConfig = async () => {
+    setPluginSaving(true)
+    setPluginMessage(null)
+    await updatePlugin('linkmind', {
+      config: {
+        baseUrl: pluginBaseUrl.trim(),
+        pollIntervalMs: Number(pluginPollInterval) || undefined,
+        pollTimeoutMs: Number(pluginPollTimeout) || undefined,
+      },
+    })
+    setPluginSaving(false)
+    setPluginMessage({ type: 'success', text: '插件配置已保存。' })
+  }
+
+  const testLinkMindConnection = async () => {
+    setPluginTesting(true)
+    setPluginMessage(null)
+    try {
+      const response = await apiFetch('/api/linkmind/health')
+      const payload = await response.json()
+      if (response.ok && payload.status === 'ok') {
+        setPluginMessage({ type: 'success', text: '连接成功：LinkMind 服务可用。' })
+      } else if (response.status === 503) {
+        setPluginMessage({ type: 'error', text: '未配置 LinkMind 服务地址，请先保存配置。' })
+      } else {
+        setPluginMessage({ type: 'error', text: `连接失败（${response.status}）：${payload.error || '服务不可用'}` })
+      }
+    } catch {
+      setPluginMessage({ type: 'error', text: '无法连接 LinkMind 服务。' })
+    } finally {
+      setPluginTesting(false)
+    }
+  }
+
+  const renderPlugins = () => (
+    <div className="space-y-4">
+      {plugins.length === 0 && (
+        <div className="rounded-[22px] bg-white/34 p-4 text-[12px] text-on-surface-variant ring-1 ring-white/45">
+          暂无可用插件。
+        </div>
+      )}
+      {plugins.map(({ manifest, state }) => {
+        const installed = Boolean(state?.installed)
+        const enabled = Boolean(state?.enabled)
+        return (
+          <section key={manifest.id} className="surface-list-card rounded-[24px] p-4">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-[13px] font-semibold text-on-surface">
+                  <Puzzle size={14} className="text-primary" />
+                  {manifest.name}
+                  <span className="rounded-full bg-white/42 px-2 py-0.5 text-[10px] font-normal text-outline">
+                    v{manifest.version}
+                  </span>
+                </div>
+                <div className="mt-1 text-[12px] leading-5 text-on-surface-variant">{manifest.description}</div>
+                <div className="mt-1 text-[11px] text-outline">{manifest.author}</div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {installed ? (
+                  <>
+                    <button
+                      onClick={() => updatePlugin(manifest.id, { enabled: !enabled })}
+                      className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all ${
+                        enabled ? 'bg-primary-fixed/34 text-primary' : 'bg-white/42 text-outline'
+                      }`}
+                    >
+                      {enabled ? '已启用' : '已停用'}
+                    </button>
+                    <button
+                      onClick={() => uninstallPlugin(manifest.id)}
+                      className="rounded-full bg-white/42 px-3 py-1.5 text-[11px] font-semibold text-on-surface-variant transition-all hover:bg-error-container/55 hover:text-on-error-container"
+                    >
+                      卸载
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => installPlugin(manifest.id)}
+                    className="btn-liquid flex h-9 items-center gap-1.5 px-4 text-[11px]"
+                  >
+                    <Plus size={12} />
+                    安装
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {installed && enabled && (
+              <div className="mt-3 space-y-3 border-t border-outline-variant/25 pt-3">
+                <div>
+                  <label className="mb-1 block text-[11px] font-semibold text-on-surface">LinkMind 服务地址</label>
+                  <div className="flex gap-2">
+                    <input
+                      value={pluginBaseUrl}
+                      onChange={(event) => setPluginBaseUrl(event.target.value)}
+                      className="input-field h-10 min-w-0 flex-1 text-[12px]"
+                      placeholder="http://localhost:3100"
+                    />
+                    <button
+                      onClick={savePluginConfig}
+                      disabled={pluginSaving}
+                      className="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-white/45 px-4 text-[12px] font-semibold text-secondary ring-1 ring-secondary/18 transition-all hover:bg-secondary-container/45 disabled:opacity-45"
+                    >
+                      {pluginSaving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                      保存
+                    </button>
+                    <button
+                      onClick={testLinkMindConnection}
+                      disabled={pluginTesting || !pluginBaseUrl.trim()}
+                      className="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-white/45 px-4 text-[12px] font-semibold text-on-surface-variant ring-1 ring-white/55 transition-all hover:bg-secondary-container/45 disabled:opacity-45"
+                    >
+                      {pluginTesting ? <Loader2 size={12} className="animate-spin" /> : <TestTube2 size={12} />}
+                      测试连接
+                    </button>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="mb-1 block text-[11px] text-outline">轮询间隔（ms）</label>
+                      <input
+                        value={pluginPollInterval}
+                        onChange={(event) => setPluginPollInterval(event.target.value)}
+                        className="input-field h-9 w-full text-[12px]"
+                        inputMode="numeric"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[11px] text-outline">轮询超时（ms）</label>
+                      <input
+                        value={pluginPollTimeout}
+                        onChange={(event) => setPluginPollTimeout(event.target.value)}
+                        className="input-field h-9 w-full text-[12px]"
+                        inputMode="numeric"
+                      />
+                    </div>
+                  </div>
+                  {pluginMessage && (
+                    <div
+                      className={`mt-2 rounded-[16px] px-3 py-2 text-[11px] leading-4 ${
+                        pluginMessage.type === 'error'
+                          ? 'bg-error-container/55 text-on-error-container ring-1 ring-error/15'
+                          : 'bg-white/40 text-on-surface-variant ring-1 ring-white/55'
+                      }`}
+                    >
+                      {pluginMessage.text}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
+        )
+      })}
+    </div>
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -834,6 +1014,7 @@ export default function Settings() {
 
   const renderActiveSection = () => {
     if (activeSection === 'storage') return renderStorage()
+    if (activeSection === 'plugins') return renderPlugins()
     if (activeSection === 'appearance') return renderAppearance()
     if (activeSection === 'activity') return renderActivity()
     if (activeSection === 'about') return renderAbout()

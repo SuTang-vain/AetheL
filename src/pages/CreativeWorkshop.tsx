@@ -28,6 +28,7 @@ import {
   type ParsedPrdFile,
 } from '@/lib/prdFileParser'
 import { importLink, guessPlatformFromUrl, type LinkCandidateBubble } from '@/lib/linkmindImport'
+import { usePluginStore } from '@/stores/pluginStore'
 import type { ImportedSourceMeta } from '../../api/storage/types.js'
 
 const SKILL_ACCENT: Record<WorkshopSkillId, string> = {
@@ -43,6 +44,7 @@ export default function CreativeWorkshop() {
   const { addBubble, setSelectedBubbleIds, setActiveBubble } = useBubbleStore()
   const { skills, activeSkillId, setActiveSkill, toggleSkill } = useWorkshopStore()
   const { runWorkshopSkill, isLoading, error, clearError } = useAiStore()
+  const { plugins: _pluginEntries, loadPlugins, isReady: isPluginReady } = usePluginStore()
   const [ideaInput, setIdeaInput] = useState('')
   const [prdInput, setPrdInput] = useState('')
   const [uploadedPrdFileName, setUploadedPrdFileName] = useState('')
@@ -59,9 +61,15 @@ export default function CreativeWorkshop() {
   const [linkCandidates, setLinkCandidates] = useState<LinkCandidateBubble[]>([])
   const [linkImportMeta, setLinkImportMeta] = useState<{ importId: string; knowledgeItemId: string; url: string; sourceSummary?: string } | null>(null)
   const activeSkill = skills.find((skill) => skill.id === activeSkillId) || skills[0]
-  const enabledSkills = skills.filter((skill) => skill.enabled)
+  const linkMindReady = isPluginReady('linkmind')
+  const visibleSkills = skills.filter((skill) => skill.id !== 'link-to-evidence' || linkMindReady)
+  const enabledSkills = visibleSkills.filter((skill) => skill.enabled)
   const activeInput = activeSkillId === 'idea-to-bubbles' || activeSkillId === 'link-to-evidence' ? ideaInput : prdInput
   const previewBubbles = skillResult?.candidateBubbles || []
+
+  useEffect(() => {
+    loadPlugins()
+  }, [loadPlugins])
 
   useEffect(() => {
     const requestedSkillId = searchParams.get('skill') as WorkshopSkillId | null
@@ -172,6 +180,11 @@ export default function CreativeWorkshop() {
     if (!activeSkill?.enabled || activeInput.trim().length === 0) return
 
     if (activeSkillId === 'link-to-evidence') {
+      if (!linkMindReady) {
+        setSkillResult(null)
+        setLinkImportError('LinkMind 插件未安装或未启用，请先在设置中心安装并启用。')
+        return
+      }
       setLinkImportError('')
       setIsImportingLink(true)
       try {
@@ -310,7 +323,7 @@ export default function CreativeWorkshop() {
           </div>
 
           <div className="edge-fade-scroll-soft space-y-2 overflow-y-auto pr-1 pb-8">
-            {skills.map((skill) => {
+            {visibleSkills.map((skill) => {
               const active = activeSkillId === skill.id
               return (
                 <button

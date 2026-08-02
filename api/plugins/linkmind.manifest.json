@@ -1,0 +1,10 @@
+{
+  "id": "linkmind",
+  "name": "LinkMind 外部证据",
+  "version": "0.1.0",
+  "description": "把收藏的链接/视频接入 LinkMind（链藏）证据蒸馏管线，生成证据/推断/不确定气泡进入画布。",
+  "author": "AetheL Team",
+  "entrypoints": {
+    "skill": "link-to-evidence"
+  }
+}

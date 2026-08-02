@@ -127,6 +127,20 @@ LINKMIND_IMPORT_POLL_INTERVAL_MS=2000
 LINKMIND_IMPORT_POLL_TIMEOUT_MS=120000
 ```
 
+> `.env` 仅为开发/测试回退。正式形态是插件配置（见 5.7）：`LINKMIND_BASE_URL` 可由插件配置替代。
+
+### 5.7 插件形态（实现落地，2026-08-02）
+
+LinkMind 以**可安装插件**的形式存在于 AetheL，而非硬编码 env 配置：
+
+- **插件清单**：`api/plugins/linkmind.manifest.json`（id/name/version/description/entrypoints.skill）；内置插件随仓库分发，`api/plugins/*.manifest.json` 自动发现；
+- **安装状态**：`data/plugins/<id>.json`（`installed`/`enabled`/`config`），`AETHEL_DATA_DIR` 感知；卸载仅标记并停用，配置保留可恢复；
+- **注册表**：`api/plugins/registry.ts`；API：`/api/plugins`（列表 / POST install / POST uninstall / PATCH 配置）；
+- **配置解析顺序**：插件配置（已安装且启用且填了 baseUrl）→ env 回退（开发/测试）→ 未配置（503 `LINKMIND_NOT_CONFIGURED`）；
+- **skill 门控**：`link-to-evidence` 仅在插件已安装且启用时出现在创意工坊（`usePluginStore.isReady('linkmind')`），未就绪时运行按钮给出引导提示；
+- **设置中心"插件"分区**：安装/启用/卸载 + LinkMind 服务地址 + 轮询间隔/超时 + "测试连接"（`GET /api/linkmind/health` 直连 LinkMind `/health`）；
+- **测试**：`tests/integration/plugins.test.ts` 覆盖列表/安装/配置来源切换/停用回落/卸载保留/health 代理。
+
 ## 6. P1 详细设计
 
 ### 6.1 认知产物互通（快照 ↔ 知识项）
