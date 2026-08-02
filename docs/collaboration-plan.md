@@ -1,17 +1,21 @@
 # 双线并行开发协作方案
 
-> 状态：草案（feature/linkmind-integration 分支）
+> 状态：执行中（人员与沟通渠道已按 2026-08-02 项目启动会确定，见 §1、§7）
 > 背景：两条功能线（A：LinkMind 外部证据层集成；B：本地 Agent CLI 驱动）分别由不同开发者开发。
 > 依据：`docs/linkmind-integration.md`、`docs/local-agent-cli-driver.md`（契约事实源）。
+> 来源：2026-08-02 启动会纪要（含原始转录）：https://dcnk566ts94k.feishu.cn/docx/K9TadjJCVobhnRxvSKUcGoqXnpc
 > 参考：LinkMind 仓库自身的 `docs/development-workflow.md`（四人并行工作流，本方案沿用其"契约冻结 + 短分支 + 小 PR"原则）。
 
 ## 1. 分工总览
 
 | 开发者 | 工作线 | 交付物 |
 | --- | --- | --- |
-| Dev A | 链路 A：LinkMind 集成 | `linkmind-integration.md` 的 P0/P1（外部证据层、快照互通） |
-| Dev B | 链路 B：本地 Agent CLI 驱动 | `local-agent-cli-driver.md` 的 M1/M2（local-cli provider、流式 chat） |
-| 双方（A 主导，B 评审） | 共享基础 | `isAIProviderConfigured` 重构 + AIProvider 扩展 + CI 设施 |
+| 苏棠（Dev A） | 链路 A：LinkMind 集成 | `linkmind-integration.md` 的 P0/P1（外部证据层、快照互通） |
+| 苏和（Dev B） | 链路 B：本地 Agent CLI 驱动 | `local-agent-cli-driver.md` 的 M1/M2（local-cli provider、流式 chat） |
+| 越天野（学长） | 体验测试 / 用户引导自动化 / 记忆预测调研 / live2D 桌宠 | 验收清单、引导方案、记忆方案调研 |
+| 苏棠主导、苏和评审 | 共享基础 | `isAIProviderConfigured` 重构 + AIProvider 扩展 + CI 设施 |
+
+> 角色以 Dev A / Dev B 标识保持通用性，人员变动时仅需更新本表映射。
 
 核心原则：
 
@@ -89,8 +93,8 @@ isAIProviderConfigured(configs: Record<AIProvider, AIConfig>): boolean
 ```text
 main（保护）
  ├── 基础 PR：docs + isAIProviderConfigured + CI        （双方评审）
- ├── feature/linkmind-integration   ← Dev A 工作线（已存在）
- └── feature/local-agent-driver     ← Dev B 工作线（待创建）
+ ├── feature/linkmind-integration   ← 苏棠（Dev A）工作线（已存在）
+ └── feature/local-agent-driver     ← 苏和（Dev B）工作线（已创建）
 ```
 
 - 双方从 `main`（基础 PR 合入后）拉各自分支，**不再从彼此的 feature 分支拉**；
@@ -120,20 +124,23 @@ main（保护）
 
 ## 7. 沟通与决策机制
 
+- **主沟通渠道**：飞书群（苏棠飞书常看）；技术问题、开发周期紧张、人力缺乏随时群内提出，人力不足可再拉人；
+- **会议纪要**：2026-08-02 启动会纪要（含原始转录）：https://dcnk566ts94k.feishu.cn/docx/K9TadjJCVobhnRxvSKUcGoqXnpc；
 - **每日 15 分钟同步**（异步亦可）：昨天合入、今天计划、阻塞点；
 - **决策记录**：继续沿用方案文档的 ADR 编号（ADR-7 起），新决策必须写入对应方案文档，不留口头决定；
 - **契约变更登记**：任何冻结签名（§4）改动 = 修改方案文档 + 通知对方，禁止单方面改；
 - **演示节奏**：每条线 M 里程碑完成时给对方跑一次冒烟演示，暴露集成问题早于合入。
+- **资源支持**：苏和本地开发使用 QCoder（会员由苏棠支持，预算约 140 以内）；参赛投 Q-Coder 赛道，相关素材需换 Q-Coder 标。
 
 ## 8. 里程碑与验收（两周节奏示例）
 
 | 时间 | 里程碑 | Dev A（链路 A） | Dev B（链路 B） | 验收 |
 | --- | --- | --- | --- | --- |
 | Day 1 | 契约冻结 | 评审基础 PR | 评审基础 PR | 基础 PR 合入 main，CI 绿 |
-| Day 2-6 | 第一切片 | P0：代理 + link-to-evidence skill + 转换层 | M1：claude/codex adapter + 队列 + 安全 | 各自 PR 合入 main |
-| Day 7 | 联合集成 | 接缝用例（mock adapter） | adapter 接口联调 | 接缝测试绿 |
+| Day 2-6 | 第一切片 | P0：代理 + link-to-evidence skill + 转换层 | M1：claude/codex adapter + 队列 + 安全 | 各自 PR 合入 main；越天野开始体验 demo |
+| Day 7 | 联合集成 | 接缝用例（mock adapter） | adapter 接口联调 | 接缝测试绿；越天野输出首轮体验反馈 |
 | Day 8-9 | 第二切片 | P1：快照互通、追问注入 | M2：流式 chat + Settings UI | Settings 分区无覆盖 |
-| Day 10 | 复盘 | 联合冒烟：链接→证据气泡→本地 agent 快照 | 同左 | 双线闭环 demo |
+| Day 10 | 复盘 | 联合冒烟：链接→证据气泡→本地 agent 快照 | 同左 | 双线闭环 demo；越天野验收通过 |
 
 > 说明：时间为相对节奏示例，具体以实际开发速度调整；里程碑切片可互换顺序（两条线互不阻塞）。
 
@@ -149,9 +156,10 @@ main（保护）
 | 分支长寿化 → 合并地狱 | 中/高 | 里程碑切片即合入 main（§5、§8） |
 | 单机端口冲突（3000） | 中/低 | 约定 LinkMind 跑 3100（方案文档 ADR-3） |
 
-## 10. 待确认的决策点
+## 10. 决策记录（2026-08-02 启动会已定项）
 
-1. 两位开发者的分支命名与权限（AetheL 仓库是否都需 push 权限，还是走 fork + PR）；
-2. 是否采纳"docs 先合入 main 再各自拉分支"，还是保留 `feature/linkmind-integration` 作为 A 的长期工作分支；
-3. CI 用 GitHub Actions（推荐，仓库在 GitHub 上且 LinkMind 已有先例）；
-4. 两周节奏是否合适，还是按周迭代。
+- 分支：`feature/linkmind-integration`（苏棠）+ `feature/local-agent-driver`（苏和），已创建并推送；
+- 契约：三份方案文档已合入 `main`（`a3a9a12`、`7ad8ebe`）；
+- CI：GitHub Actions 已配置（check + lint + test:integration），既有 lint 阻塞项已修复（`37dbce4`）；
+- 人员与渠道：见 §1、§7。
+- 待定：开发节奏按两周切片（§8）还是按周迭代，首轮合入后由团队复盘决定。
