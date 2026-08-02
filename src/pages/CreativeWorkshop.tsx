@@ -71,6 +71,33 @@ export default function CreativeWorkshop() {
     loadPlugins()
   }, [loadPlugins])
 
+  // 首页智能输入框跳转：预填 input 并按需自动运行一次
+  const [autoRunRequest, setAutoRunRequest] = useState<{ input: string; skill: WorkshopSkillId } | null>(null)
+  const runSkillRef = useRef<((withConfirmation?: boolean) => void) | null>(null)
+
+  useEffect(() => {
+    const inputParam = searchParams.get('input')
+    if (inputParam == null || autoRunRequest) return
+    if (activeSkillId === 'idea-to-bubbles' || activeSkillId === 'link-to-evidence') {
+      setIdeaInput(inputParam)
+    } else {
+      setPrdInput(inputParam)
+    }
+    if (searchParams.get('autoRun') === '1') {
+      setAutoRunRequest({ input: inputParam, skill: activeSkillId })
+    }
+  }, [searchParams, activeSkillId, autoRunRequest])
+
+  useEffect(() => {
+    if (!autoRunRequest) return
+    const currentInput = autoRunRequest.skill === 'idea-to-bubbles' || autoRunRequest.skill === 'link-to-evidence'
+      ? ideaInput
+      : prdInput
+    if (currentInput !== autoRunRequest.input || autoRunRequest.skill !== activeSkillId) return
+    runSkillRef.current?.(false)
+    setAutoRunRequest(null)
+  }, [autoRunRequest, ideaInput, prdInput, activeSkillId])
+
   useEffect(() => {
     const requestedSkillId = searchParams.get('skill') as WorkshopSkillId | null
     if (
@@ -179,8 +206,7 @@ export default function CreativeWorkshop() {
   const runSkill = async (withConfirmation = false) => {
     if (!activeSkill?.enabled || activeInput.trim().length === 0) return
 
-    if (activeSkillId === 'link-to-evidence') {
-      if (!linkMindReady) {
+    if (activeSkillId === 'link-to-evidence') {      if (!linkMindReady) {
         setSkillResult(null)
         setLinkImportError('LinkMind 插件未安装或未启用，请先在设置中心安装并启用。')
         return
@@ -249,6 +275,7 @@ export default function CreativeWorkshop() {
       setCreatedIds([])
     }
   }
+  runSkillRef.current = runSkill
 
   const createBubbles = () => {
     if (createdIds.length > 0) return createdIds

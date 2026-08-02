@@ -6,11 +6,13 @@ import AICategorizePanel from '@/components/AICategorizePanel'
 import BubbleDetail from '@/components/BubbleDetail'
 import SnapshotPanel from '@/components/snapshot/SnapshotPanel'
 import BubbleAIAssistant from '@/components/BubbleAIAssistant'
+import WelcomeHome from '@/components/onboarding/WelcomeHome'
 import { useBubbleStore } from '@/stores/bubbleStore'
 import { useSnapshotStore } from '@/stores/snapshotStore'
 
 export default function BubbleSpace() {
   const [activePanel, setActivePanel] = useState<'tags' | 'ai' | 'snapshot' | null>(null)
+  const bubbles = useBubbleStore((s) => s.bubbles)
   const activeBubbleId = useBubbleStore((s) => s.activeBubbleId)
   const selectedBubbleIds = useBubbleStore((s) => s.selectedBubbleIds)
   const canvasMode = useBubbleStore((s) => s.canvasMode)
@@ -35,6 +37,11 @@ export default function BubbleSpace() {
       setActivePanel('snapshot')
     }
   }, [canvasMode, selectedBubbleIds.length])
+
+  // 空工作区：以产品首页（智能输入框引导）替代画布
+  if (bubbles.length === 0) {
+    return <WelcomeHome />
+  }
 
   return (
     <div className="h-screen flex flex-col bg-background dot-grid-bg relative overflow-hidden">
