@@ -1,5 +1,9 @@
+import { readFile, writeFile } from 'fs/promises'
+import path from 'path'
 import { Router, type Request, type Response } from 'express'
-import { getEffectiveLinkMindConfig } from '../plugins/registry.js'
+import { getEffectiveLinkMindConfig, readPluginState, type PluginState } from '../plugins/registry.js'
+import { projectRoot } from '../storage/paths.js'
+import { getRuntimeAIConfig } from './ai.js'
 
 /**
  * LinkMind（链藏）外部证据服务代理层。
@@ -64,6 +68,79 @@ router.get('/health', async (_req: Request, res: Response) => {
   } catch (error: unknown) {
     console.error('LinkMind health error:', error)
     res.status(500).json({ success: false, error: (error as Error).message || 'LinkMind health error' })
+  }
+})
+
+function maskApiKey(apiKey: string) {
+  if (apiKey.length <= 8) return '***'
+  return `${apiKey.slice(0, 4)}***${apiKey.slice(-4)}`
+}
+
+/**
+ * 把 AetheL 当前生效的 AI 配置（Settings 中保存的 provider/key/model）同步到 LinkMind 的 .env。
+ * 只写 AI_API_KEY / AI_BASE_URL / AI_MODEL 三行，保留其余配置；key 不回传客户端。
+ */
+router.post('/sync-ai-config', async (_req: Request, res: Response) => {
+  try {
+    const config = await getEffectiveLinkMindConfig()
+    if (!config) {
+      res.status(503).json({ success: false, error: 'LinkMind not configured', code: 'LINKMIND_NOT_CONFIGURED' })
+      return
+    }
+
+    const runtime = getRuntimeAIConfig()
+    if (!runtime.apiKey) {
+      res.status(400).json({
+        success: false,
+        error: 'AetheL 当前没有可用的 AI key，请先在设置中心 AI 引擎中保存服务商配置。',
+        code: 'AI_KEY_MISSING',
+      })
+      return
+    }
+
+    const state = await readPluginState('linkmind')
+    const envPath = process.env.LINKMIND_ENV_PATH
+      || (state?.config as PluginState['config'] & { envPath?: string }).envPath
+      || path.join(projectRoot, '../workflow/.env')
+
+    let existing = ''
+    try {
+      existing = await readFile(envPath, 'utf8')
+    } catch {
+      existing = ''
+    }
+
+    const entries: Array<[string, string]> = [
+      ['AI_API_KEY', runtime.apiKey],
+      ['AI_BASE_URL', runtime.baseURL],
+      ['AI_MODEL', runtime.model],
+    ]
+
+    const lines = existing.split('\n')
+    for (const [key, value] of entries) {
+      const pattern = new RegExp(`^${key}=.*$`, 'm')
+      const line = `${key}="${value}"`
+      if (pattern.test(existing)) {
+        lines[lines.findIndex((item) => new RegExp(`^${key}=`).test(item))] = line
+      } else {
+        lines.push(line)
+      }
+    }
+    const next = lines.join('\n').replace(/\n{3,}/g, '\n\n')
+    await writeFile(envPath, next.endsWith('\n') ? next : `${next}\n`)
+
+    res.json({
+      success: true,
+      message: 'AI 配置已同步到 LinkMind，重启 LinkMind 后生效。',
+      provider: runtime.provider,
+      baseURL: runtime.baseURL,
+      model: runtime.model,
+      apiKeyMasked: maskApiKey(runtime.apiKey),
+      envPath,
+    })
+  } catch (error: unknown) {
+    console.error('LinkMind AI config sync error:', error)
+    res.status(500).json({ success: false, error: (error as Error).message || 'LinkMind AI config sync error' })
   }
 })
 

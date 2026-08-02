@@ -7,7 +7,7 @@
     "client:dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test:integration": "tsx tests/integration/p0.test.ts && tsx tests/integration/p1-file-parser.test.ts && tsx tests/integration/inflight-requests.test.ts && tsx tests/integration/ai-config.test.ts && tsx tests/integration/ai-routing.test.ts && tsx tests/integration/linkmind-import.test.ts && tsx tests/integration/plugins.test.ts && tsx tests/integration/workshop-input.test.ts",
+    "test:integration": "tsx tests/integration/p0.test.ts && tsx tests/integration/p1-file-parser.test.ts && tsx tests/integration/inflight-requests.test.ts && tsx tests/integration/ai-config.test.ts && tsx tests/integration/ai-routing.test.ts && tsx tests/integration/linkmind-import.test.ts && tsx tests/integration/plugins.test.ts && tsx tests/integration/workshop-input.test.ts && tsx tests/integration/ai-sync.test.ts",
     "test:ui": "tsx tests/integration/p1-ui.test.ts",
     "preview": "vite preview",
     "check": "tsc --noEmit",

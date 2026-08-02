@@ -223,6 +223,7 @@ export default function Settings() {
   const [pluginPollTimeout, setPluginPollTimeout] = useState('120000')
   const [pluginSaving, setPluginSaving] = useState(false)
   const [pluginTesting, setPluginTesting] = useState(false)
+  const [pluginSyncing, setPluginSyncing] = useState(false)
   const [pluginMessage, setPluginMessage] = useState<StatusMessage | null>(null)
   const { plugins, loadPlugins, installPlugin, uninstallPlugin, updatePlugin } = usePluginStore()
 
@@ -376,6 +377,27 @@ export default function Settings() {
     }
   }
 
+  const syncLinkMindAiConfig = async () => {
+    setPluginSyncing(true)
+    setPluginMessage(null)
+    try {
+      const response = await apiFetch('/api/linkmind/sync-ai-config', { method: 'POST' })
+      const payload = await response.json()
+      if (response.ok && payload.success) {
+        setPluginMessage({
+          type: 'success',
+          text: `已同步 ${payload.provider}（${payload.model}，key ${payload.apiKeyMasked}）到 LinkMind，重启 LinkMind 后生效。`,
+        })
+      } else {
+        setPluginMessage({ type: 'error', text: payload.error || 'AI 配置同步失败。' })
+      }
+    } catch {
+      setPluginMessage({ type: 'error', text: 'AI 配置同步失败，请稍后重试。' })
+    } finally {
+      setPluginSyncing(false)
+    }
+  }
+
   const renderPlugins = () => (
     <div className="space-y-4">
       {plugins.length === 0 && (
@@ -457,6 +479,18 @@ export default function Settings() {
                       {pluginTesting ? <Loader2 size={12} className="animate-spin" /> : <TestTube2 size={12} />}
                       测试连接
                     </button>
+                    <button
+                      onClick={syncLinkMindAiConfig}
+                      disabled={pluginSyncing}
+                      className="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-secondary-container/45 px-4 text-[12px] font-semibold text-secondary transition-all hover:bg-secondary-container disabled:opacity-45"
+                      title="把 AetheL 设置中心当前生效的 AI 服务商配置同步到 LinkMind 的 .env"
+                    >
+                      {pluginSyncing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                      同步 AI 配置
+                    </button>
+                  </div>
+                  <div className="mt-2 text-[11px] leading-4 text-outline">
+                    同步 = 把 AetheL 的 AI 服务商/key/模型写入 LinkMind 的 .env（AI_API_KEY / AI_BASE_URL / AI_MODEL），重启 LinkMind 后生效。
                   </div>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <div>

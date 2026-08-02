@@ -16,6 +16,7 @@ export interface PluginConfig {
   baseUrl?: string
   pollIntervalMs?: number
   pollTimeoutMs?: number
+  envPath?: string
 }
 
 export interface PluginState {

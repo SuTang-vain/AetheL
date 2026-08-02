@@ -105,6 +105,9 @@ router.patch('/:id', async (req: Request, res: Response) => {
           pollTimeoutMs: typeof rawConfig.pollTimeoutMs === 'number' && rawConfig.pollTimeoutMs > 0
             ? Math.round(rawConfig.pollTimeoutMs)
             : undefined,
+          envPath: typeof rawConfig.envPath === 'string' && rawConfig.envPath.trim()
+            ? rawConfig.envPath.trim()
+            : undefined,
         }
         : {}),
     }

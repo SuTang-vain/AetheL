@@ -58,6 +58,19 @@ const router = Router()
 
 let aiConfig = getAIConfigFromEnv()
 let aiSelection: AIProviderSelection = resolveAISelectionFromEnv()
+
+/**
+ * 返回后端当前生效的 AI 配置（含 apiKey，仅服务端使用）。
+ * 供 LinkMind 插件配置同步等场景读取，绝不通过 API 回传客户端。
+ */
+export function getRuntimeAIConfig() {
+  return {
+    provider: aiConfig.provider,
+    apiKey: aiConfig.apiKey,
+    baseURL: aiConfig.baseURL,
+    model: aiConfig.model,
+  }
+}
 let client = new OpenAI({
   baseURL: aiConfig.baseURL,
   apiKey: aiConfig.apiKey,
