@@ -23,7 +23,6 @@ export default function SnapshotLevelDisclosure({
   deep,
   onToggleExpand,
   onToggleDeep,
-  formatTime,
   compact = false,
 }: SnapshotLevelDisclosureProps) {
   const cognition = snapshot.cognition || createFallbackCognition(snapshot.canvasState.bubbles)

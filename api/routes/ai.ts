@@ -1,5 +1,7 @@
 import { Router, type Request, type Response } from 'express'
 import OpenAI from 'openai'
+import type { ChatCompletion, ChatCompletionChunk } from 'openai/resources/chat/completions'
+import type { Stream } from 'openai/streaming'
 import crypto from 'node:crypto'
 import dotenv from 'dotenv'
 import {
@@ -71,16 +73,26 @@ type CompletionPayload = {
   response_format?: { type: 'json_object' }
 }
 type CompletionOverride = (payload: CompletionPayload) => Promise<unknown> | unknown
+type CompletionResponse = ChatCompletion | Stream<ChatCompletionChunk>
+
+function isChatStream(response: CompletionResponse): response is Stream<ChatCompletionChunk> {
+  return typeof (response as unknown as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function'
+}
+
+function getChatContent(response: CompletionResponse, fallback = ''): string {
+  return isChatStream(response) ? fallback : (response.choices?.[0]?.message?.content ?? fallback)
+}
+
 type CompletionResult = {
-  result: any
+  result: CompletionResponse
   cacheHit: boolean
   pendingReuse: boolean
 }
 let completionOverride: CompletionOverride | null = null
 type CompletionCacheEntry = {
   expiresAt: number
-  value: unknown
-  promise?: Promise<unknown>
+  value: CompletionResponse | null
+  promise?: Promise<CompletionResponse>
 }
 
 const AI_RESPONSE_CACHE_TTL_MS = 5 * 60 * 1000
@@ -142,7 +154,7 @@ function pruneAIResponseCache() {
 
 async function createChatCompletion(
   payload: CompletionPayload,
-  options: { cache?: boolean; config?: AIConfig; clientInstance?: OpenAI; validate?: (result: any) => void } = {},
+  options: { cache?: boolean; config?: AIConfig; clientInstance?: OpenAI; validate?: (result: CompletionResponse) => void } = {},
 ): Promise<CompletionResult & { cacheKey?: string }> {
   const shouldCache = options.cache === true && !payload.stream
   const activeConfig = options.config || aiConfig
@@ -157,7 +169,7 @@ async function createChatCompletion(
     })).digest('hex')
     const cached = aiResponseCache.get(cacheKey)
     if (cached && cached.expiresAt > Date.now()) {
-      const cachedResult = cached.promise ? await cached.promise : cached.value
+      const cachedResult = cached.promise ? await cached.promise : (cached.value as CompletionResponse)
       if (options.validate) {
         try {
           options.validate(cachedResult)
@@ -176,7 +188,7 @@ async function createChatCompletion(
 
     const pending = (async () => {
       if (completionOverride) {
-        return completionOverride(payload)
+        return completionOverride(payload) as CompletionResponse
       }
       return activeClient.chat.completions.create(payload as Parameters<typeof activeClient.chat.completions.create>[0])
     })()
@@ -210,7 +222,7 @@ async function createChatCompletion(
   }
 
   if (completionOverride) {
-    const result = await completionOverride(payload)
+    const result = await completionOverride(payload) as CompletionResponse
     if (options.validate) options.validate(result)
     return { result, cacheHit: false, pendingReuse: false }
   }
@@ -221,16 +233,6 @@ async function createChatCompletion(
     cacheHit: false,
     pendingReuse: false,
   }
-}
-
-function recreateClient() {
-  aiConfig = getAIConfigFromEnv()
-  aiSelection = resolveAISelectionFromEnv()
-  client = new OpenAI({
-    baseURL: aiConfig.baseURL,
-    apiKey: aiConfig.apiKey,
-  })
-  defaultModel = aiConfig.model
 }
 
 function createClientForConfig(config: AIConfig) {
@@ -291,7 +293,7 @@ async function runProfileCompletion(
     cache?: boolean
     parse?: (content: string) => unknown
   } = {},
-): Promise<{ response: any; meta: CompletionResult & { provider: AIProvider; model: string; profile: AITaskProfile; fallbackReason?: string } }> {
+): Promise<{ response: CompletionResponse; meta: CompletionResult & { provider: AIProvider; model: string; profile: AITaskProfile; fallbackReason?: string } }> {
   const profileConfig = taskProfiles[profile]
   const configs = buildAIConfigsFromEnv()
   const candidates = aiSelection === 'auto'
@@ -324,8 +326,8 @@ async function runProfileCompletion(
         config,
         clientInstance: selectedClient,
         validate: options.parse
-          ? (result: any) => {
-            const content = result?.choices?.[0]?.message?.content || '{}'
+          ? (result: CompletionResponse) => {
+            const content = getChatContent(result, '{}')
             options.parse!(content)
           }
           : undefined,
@@ -503,6 +505,10 @@ router.post('/chat', async (req: Request, res: Response) => {
         stream: true,
       }, 'long-document', { cache: false })
 
+      if (!isChatStream(response)) {
+        throw new Error('Expected streaming completion response')
+      }
+
       for await (const chunk of response) {
         const content = chunk.choices?.[0]?.delta?.content
         if (content) {
@@ -520,8 +526,8 @@ router.post('/chat', async (req: Request, res: Response) => {
 
       res.json({
         success: true,
-        content: response?.choices?.[0]?.message?.content || '',
-        usage: response?.usage,
+        content: getChatContent(response),
+        usage: isChatStream(response) ? undefined : response.usage,
       })
     }
   } catch (error: unknown) {
@@ -555,7 +561,7 @@ router.post('/categorize', async (req: Request, res: Response) => {
       stream: false,
     }, 'fast-json', { cache: false, parse: parseJsonObject })
 
-    const content = response?.choices?.[0]?.message?.content || '{}'
+    const content = getChatContent(response, '{}')
     console.log(`[AI Categorize] Provider: ${meta.provider}, Model: ${meta.model}, Content Preview: ${content.slice(0, 200)}`)
     let parsed: unknown
     try {
@@ -619,7 +625,7 @@ router.post('/workshop-skill', async (req: Request, res: Response) => {
       stream: false,
     }, 'workshop-transform')
 
-    const content = response?.choices?.[0]?.message?.content || '{}'
+    const content = getChatContent(response, '{}')
     let parsed
     try {
       parsed = parseJsonObject(content)
@@ -724,6 +730,10 @@ router.post('/generate-prd', async (req: Request, res: Response) => {
       stream: true,
     }, 'long-document', { cache: false })
 
+    if (!isChatStream(response)) {
+      throw new Error('Expected streaming completion response')
+    }
+
     for await (const chunk of response) {
       const content = chunk.choices?.[0]?.delta?.content
       if (content) {
@@ -787,7 +797,7 @@ router.post('/generate-prd-sections', async (req: Request, res: Response) => {
         stream: false,
       }, 'section-draft', { cache: true })
 
-      const content = response?.choices?.[0]?.message?.content || '{}'
+      const content = getChatContent(response, '{}')
       return parseJsonObject(content)
     }
 
@@ -895,7 +905,7 @@ router.post('/snapshot', async (req: Request, res: Response) => {
       stream: false,
     }, profile, { cache: false, parse: parseSnapshotCompletion })
 
-    const content = response?.choices?.[0]?.message?.content || '{}'
+    const content = getChatContent(response, '{}')
     let parsed
     try {
       parsed = parseJsonObject(content)
@@ -949,7 +959,7 @@ router.post('/followup', async (req: Request, res: Response) => {
       stream: false,
     }, 'fast-json')
 
-    const content = response?.choices?.[0]?.message?.content || '{}'
+    const content = getChatContent(response, '{}')
 
     let parsed: unknown
     try {

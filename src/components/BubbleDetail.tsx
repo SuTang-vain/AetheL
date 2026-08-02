@@ -48,6 +48,7 @@ export default function BubbleDetail() {
     if (!bubble) return
     setContentDraft(bubble.content)
     setTagDraft(bubble.tag)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 按字段值同步草稿而非对象身份：编辑提交通常产生新的 bubble 对象（content/tag 值不变），依赖整个 bubble 会重置用户正在编辑的草稿
   }, [bubble?.id, bubble?.content, bubble?.tag])
 
   if (!bubble) return null
