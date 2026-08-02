@@ -81,15 +81,22 @@
 
 ### 5.4 字段映射（蒸馏结果 → 气泡）
 
+转换器 `convertKnowledgeToCandidates`（`src/lib/linkmindImport.ts`，纯函数可单测）**同时兼容两种响应形态**，实际以 API 返回为准：
+
 | LinkMind 字段 | AetheL 产出 | 备注 |
 | --- | --- | --- |
-| `distillation.sourceSummary` | 摘要气泡（tag=来源摘要） | content=压缩摘要 |
-| `distillation.evidenceUnits[]`（evidenceType: TITLE/DESCRIPTION/TRANSCRIPT/METADATA） | 证据气泡（tag=外部证据） | content=证据内容；extension 记录 `evidenceType` 与 `url` |
-| `distillation.inferences[]` | 推断气泡（tag=推断） | UI 标记为 AI 推断，非事实 |
-| `distillation.uncertainties[]` | 开放问题气泡（tag=问题） | 对应画布"开放问题"语义 |
-| `article.keyPoints[]` | 要点气泡（tag=要点） | 可选，默认只取前 3 |
+| `distillation.sourceSummary`（嵌套）| 摘要气泡（tag=来源摘要）| content=压缩摘要 |
+| `summary`（扁平，实际 API）| 摘要气泡（tag=来源摘要）| 与嵌套形态互斥（扁平优先）|
+| `distillation.evidenceUnits[]`（evidenceType: TITLE/DESCRIPTION/TRANSCRIPT/METADATA）| 证据气泡（tag=外部证据）| content=证据内容；extension 记录 `evidenceType` 与 `url` |
+| `distillation.inferences[]` | 推断气泡（tag=推断）| UI 标记为 AI 推断，非事实 |
+| `distillation.uncertainties[]` | 开放问题气泡（tag=问题）| 对应画布"开放问题"语义 |
+| `article.keyPoints[]` / `keyPoints[]`（扁平）| 要点气泡（tag=要点）| 两种形态都只取前 3 |
+| `oneMinuteTakeaway`（扁平）| 一分钟理解气泡（title=一分钟理解，tag=要点）| AI 提炼的一分钟认知 |
+| `actionSuggestion`（扁平）| 下一步行动气泡（title=下一步行动，tag=行动）| AI 建议的最小认知行动 |
 | `cognitiveAction.reflectionQuestion` | 注入 `FollowUpDialog` 追问 | P1 落地 |
 | `cognitiveAction.actionSuggestion` | 快照 `wakeTrigger` 素材 | P1 落地 |
+
+> 实际联调（2026-08-02，bilibili BV1GJ411x7h7）确认 `GET /knowledge-items/:id` 返回**扁平形态**：顶层 `summary / keyPoints / oneMinuteTakeaway / actionSuggestion`，来源链接在 `source.originalUrl`。嵌套形态（`distillation.*`）保留兼容。
 
 所有由导入生成的气泡在 `extensions` 写入来源元数据，对齐 `docs/todo/data-storage.md` 的 `ExternalEvidenceSource` 草案：
 
@@ -111,8 +118,8 @@ interface ImportedSourceMeta {
 ### 5.5 错误处理与降级
 
 - 幂等：AetheL 为每次导入生成 `Idempotency-Key`（`linkmind-import-<sha1(url)>`），重复点击不重复创建。
-- 轮询：间隔 2s，上限 120s；超时返回"处理中"状态让用户稍后重试，不销毁已创建气泡。
-- `AUTH_REQUIRED`：提示"该平台需要登录授权"，保留链接为文本输入，不生成半成品。
+- 轮询：间隔 2s，上限 240s（导入创建同步包含 yt-dlp 字幕抓取与三层 AI 提取，降级模式可能重试，120s 实测不足）；超时返回"处理中"状态让用户稍后重试，不销毁已创建气泡。
+- `AUTH_REQUIRED`：提示"该平台需要登录授权"，保留链接为文本输入，不生成半成品；授权引导见 5.8。
 - `SOURCE_TRANSCRIPT_UNAVAILABLE` / AI 失败：保存原始链接为"来源链接"气泡，标注证据不可用。
 - LinkMind 不可达（`LINKMIND_BASE_URL` 未配置或连接失败）：入口隐藏并提示未连接。
 
@@ -124,7 +131,7 @@ interface ImportedSourceMeta {
 #   cd workflow && npm run dev -- -p 3100
 LINKMIND_BASE_URL=http://localhost:3100
 LINKMIND_IMPORT_POLL_INTERVAL_MS=2000
-LINKMIND_IMPORT_POLL_TIMEOUT_MS=120000
+LINKMIND_IMPORT_POLL_TIMEOUT_MS=240000
 ```
 
 > `.env` 仅为开发/测试回退。正式形态是插件配置（见 5.7）：`LINKMIND_BASE_URL` 可由插件配置替代。
@@ -138,8 +145,19 @@ LinkMind 以**可安装插件**的形式存在于 AetheL，而非硬编码 env �
 - **注册表**：`api/plugins/registry.ts`；API：`/api/plugins`（列表 / POST install / POST uninstall / PATCH 配置）；
 - **配置解析顺序**：插件配置（已安装且启用且填了 baseUrl）→ env 回退（开发/测试）→ 未配置（503 `LINKMIND_NOT_CONFIGURED`）；
 - **skill 门控**：`link-to-evidence` 仅在插件已安装且启用时出现在创意工坊（`usePluginStore.isReady('linkmind')`），未就绪时运行按钮给出引导提示；
-- **设置中心"插件"分区**：安装/启用/卸载 + LinkMind 服务地址 + 轮询间隔/超时 + "测试连接"（`GET /api/linkmind/health` 直连 LinkMind `/health`）；
-- **测试**：`tests/integration/plugins.test.ts` 覆盖列表/安装/配置来源切换/停用回落/卸载保留/health 代理。
+- **设置中心"插件"分区**：安装/启用/卸载 + LinkMind 服务地址 + 轮询间隔/超时 + "测试连接"（`GET /api/linkmind/health` 直连 LinkMind `/health`）+ "同步 AI 配置"（`POST /api/linkmind/sync-ai-config`，把 AetheL 生效的 provider/apiKey/baseURL/model 写入 LinkMind 的 `.env`，key 经 `maskApiKey` 脱敏，绝不回显）;
+- **测试**：`tests/integration/plugins.test.ts` 覆盖列表/安装/配置来源切换/停用回落/卸载保留/health 代理；`tests/integration/ai-sync.test.ts` 覆盖同步/覆盖/503/400。
+
+### 5.8 平台授权引导（实现落地，2026-08-02）
+
+部分平台（如 YouTube）的视频内容需要登录态才能抓取字幕。**授权由用户自己完成**，AetheL 只负责引导，不代持平台账号密码：
+
+1. **入口**：插件设置区的"平台授权"区块显示会话状态徽标（`DISCONNECTED`/`AWAITING_CONFIRMATION`/`ACTIVE`），默认填入 `https://www.youtube.com` 作为授权入口；
+2. **打开授权浏览器**：`POST /api/linkmind/source-session {entryUrl}` → LinkMind 用专用浏览器 profile（`SOURCE_BROWSER_COMMAND` 指定，macOS 下为 `~/.local/bin/linkmind-browser` 包装脚本，把 chromium 参数转成 `open -a "Google Chrome" --args`）启动独立窗口，用户在该窗口登录平台账号；session 进入 `AWAITING_CONFIRMATION`；
+3. **确认授权**：登录完成后点"确认授权"（`PATCH /source-session {action:'CONFIRM'}`），LinkMind 校验 profile 中已存在登录态后置为 `ACTIVE`；
+4. **生效**：后续导入自动带 `--cookies-from-browser` 复用该 profile 的登录态；`SOURCE_BROWSER_COOKIE_SPEC=chrome` 避免 Edge 数据库解密不匹配问题。
+
+LinkMind 侧实现：`workflow/src/server/connectors/local-session.ts`（source-session 生命周期 + `hasStoredProfile()` 校验）。设计要点：**用户驱动**——不做 cookie 复制、不存储平台明文凭据，浏览器窗口独立于 AetheL 应用进程。
 
 ## 6. P1 详细设计
 
@@ -194,10 +212,11 @@ LinkMind `DemoAgentRuntime`（`nextDecision`/`chat`/`recordFeedback`）对 Aethe
 
 验收标准：
 
-- [ ] 未配置 `LINKMIND_BASE_URL` 时入口隐藏、不报错
-- [ ] 同一链接重复导入只创建一个 LinkMind ImportJob（幂等）
-- [ ] 证据/推断/不确定三类气泡均携带 `extensions.source`，可点击跳转原文
-- [ ] AI 失败时仍保留"来源链接"气泡，符合"失败不丢原始输入"
+- [x] 未配置 `LINKMIND_BASE_URL` 时入口隐藏、不报错（503 `LINKMIND_NOT_CONFIGURED`）
+- [x] 同一链接重复导入只创建一个 LinkMind ImportJob（幂等）
+- [x] 证据/推断/不确定三类气泡均携带 `extensions.source`，可点击跳转原文（扁平形态经 `source.originalUrl`）
+- [x] AI 失败时仍保留"来源链接"气泡，符合"失败不丢原始输入"
+- [x] 真实 E2E（2026-08-02）：bilibili BV1GJ411x7h7 → import `COMPLETED`、`mediaStatus: RELEASED`、无 warning → 6 个候选气泡（来源摘要/要点×3/一分钟理解/下一步行动）
 
 ## 9. 风险与边界
 
@@ -213,7 +232,7 @@ LinkMind `DemoAgentRuntime`（`nextDecision`/`chat`/`recordFeedback`）对 Aethe
 
 | 阶段 | 内容 | 验收 |
 | --- | --- | --- |
-| M1（P0） | env 配置 + 后端代理 + 工坊新 skill + 转换层 + 气泡来源元数据 + 测试 | 5.5 验收标准全过 |
+| M1（P0） | env/插件配置 + 后端代理 + 工坊新 skill + 转换层 + 气泡来源元数据 + 测试 + 平台授权引导 | ✅ 2026-08-02 完成，真实 E2E 通过（见 §8 验收标准）|
 | M2（P1） | 快照输入扩展（外部证据段）+ 追问注入 | 快照生成带外部证据标记 |
 | M3（P1） | Obsidian Vault 导出 | 导出目录可在 Obsidian 打开 |
 | M4（P2） | 反馈闭环 + Agent 主动服务 | 需 LinkMind 配合改动 |
