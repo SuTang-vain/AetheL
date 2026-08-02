@@ -16,10 +16,12 @@ import { getRuntimeAIConfig } from './ai.js'
 const router = Router()
 
 const LINKMIND_PROXY_TIMEOUT_MS = Number(process.env.LINKMIND_PROXY_TIMEOUT_MS || 15_000)
+const LINKMIND_IMPORT_TIMEOUT_MS = Number(process.env.LINKMIND_IMPORT_TIMEOUT_MS || 120_000)
 
 async function proxyToLinkMind(
   upstreamPath: string,
   init: RequestInit = {},
+  timeoutMs: number = LINKMIND_PROXY_TIMEOUT_MS,
 ): Promise<{ status: number; body: unknown }> {
   const config = await getEffectiveLinkMindConfig()
   if (!config) {
@@ -30,7 +32,7 @@ async function proxyToLinkMind(
   }
 
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), LINKMIND_PROXY_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const response = await fetch(`${config.baseUrl}${upstreamPath}`, { ...init, signal: controller.signal })
     const body = await response.json().catch(() => null)
@@ -63,11 +65,59 @@ router.get('/config', async (_req: Request, res: Response) => {
 
 router.get('/health', async (_req: Request, res: Response) => {
   try {
-    const { status, body } = await proxyToLinkMind('/health')
+    const { status, body } = await proxyToLinkMind('/api/v1/health')
     res.status(status).json(body)
   } catch (error: unknown) {
     console.error('LinkMind health error:', error)
     res.status(500).json({ success: false, error: (error as Error).message || 'LinkMind health error' })
+  }
+})
+
+// 平台授权会话：状态查询
+router.get('/source-session', async (_req: Request, res: Response) => {
+  try {
+    const { status, body } = await proxyToLinkMind('/api/v1/source-session')
+    res.status(status).json(body)
+  } catch (error: unknown) {
+    console.error('LinkMind source-session error:', error)
+    res.status(500).json({ success: false, error: (error as Error).message || 'LinkMind source-session error' })
+  }
+})
+
+// 平台授权会话：open（打开授权浏览器）/ confirm / disconnect
+router.post('/source-session', async (req: Request, res: Response) => {
+  try {
+    const action = String(req.body?.action || '').trim()
+    const entryUrl = req.body?.entryUrl ? String(req.body.entryUrl).trim() : ''
+
+    if (action === 'open') {
+      if (!entryUrl) {
+        res.status(400).json({ success: false, error: 'entryUrl is required' })
+        return
+      }
+      const { status, body } = await proxyToLinkMind('/api/v1/source-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entryUrl }),
+      }, LINKMIND_IMPORT_TIMEOUT_MS)
+      res.status(status).json(body)
+      return
+    }
+
+    if (action === 'confirm' || action === 'disconnect') {
+      const { status, body } = await proxyToLinkMind('/api/v1/source-session', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      res.status(status).json(body)
+      return
+    }
+
+    res.status(400).json({ success: false, error: 'action must be open | confirm | disconnect' })
+  } catch (error: unknown) {
+    console.error('LinkMind source-session action error:', error)
+    res.status(500).json({ success: false, error: (error as Error).message || 'LinkMind source-session action error' })
   }
 })
 
@@ -158,16 +208,24 @@ router.post('/imports', async (req: Request, res: Response) => {
       headers['Idempotency-Key'] = idempotencyKey
     }
 
-    const body: Record<string, unknown> = { url }
+    const body: Record<string, unknown> = {
+      url,
+      // LinkMind 契约要求的授权声明（客户端无需感知）
+      consent: {
+        termsVersion: '1.0',
+        purpose: 'PERSONAL_KNOWLEDGE',
+      },
+    }
     if (req.body?.goalId) {
       body.goalId = String(req.body.goalId)
     }
 
+    // 导入创建可能同步触发 yt-dlp 元数据/字幕获取，超时放宽到 120s
     const { status, body: upstream } = await proxyToLinkMind('/api/v1/imports', {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
-    })
+    }, LINKMIND_IMPORT_TIMEOUT_MS)
     res.status(status).json(upstream)
   } catch (error: unknown) {
     console.error('LinkMind import error:', error)

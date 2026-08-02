@@ -18,6 +18,7 @@ import {
   Palette,
   Plus,
   Puzzle,
+  RefreshCw,
   Save,
   ServerCog,
   Settings2,
@@ -225,6 +226,12 @@ export default function Settings() {
   const [pluginTesting, setPluginTesting] = useState(false)
   const [pluginSyncing, setPluginSyncing] = useState(false)
   const [pluginMessage, setPluginMessage] = useState<StatusMessage | null>(null)
+  const [sessionStatus, setSessionStatus] = useState<string>('unknown')
+  const [sessionOrigin, setSessionOrigin] = useState('')
+  const [sessionLoading, setSessionLoading] = useState(false)
+  const [authEntryUrl, setAuthEntryUrl] = useState('https://www.bilibili.com')
+  const [authWorking, setAuthWorking] = useState(false)
+  const [authMessage, setAuthMessage] = useState<StatusMessage | null>(null)
   const { plugins, loadPlugins, installPlugin, uninstallPlugin, updatePlugin } = usePluginStore()
 
   const sectionParam = searchParams.get('section') as SettingsSectionKey | null
@@ -398,6 +405,79 @@ export default function Settings() {
     }
   }
 
+  const refreshSourceSession = async () => {
+    setSessionLoading(true)
+    try {
+      const response = await apiFetch('/api/linkmind/source-session')
+      const payload = await response.json()
+      if (response.ok && payload.status) {
+        setSessionStatus(String(payload.status))
+        setSessionOrigin(payload.entryOrigin || '')
+      } else {
+        setSessionStatus('unavailable')
+      }
+    } catch {
+      setSessionStatus('unavailable')
+    } finally {
+      setSessionLoading(false)
+    }
+  }
+
+  const openAuthBrowser = async () => {
+    setAuthWorking(true)
+    setAuthMessage(null)
+    try {
+      const response = await apiFetch('/api/linkmind/source-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'open', entryUrl: authEntryUrl.trim() }),
+      })
+      const payload = await response.json()
+      if (response.ok && payload.status) {
+        setSessionStatus(String(payload.status))
+        setSessionOrigin(payload.entryOrigin || '')
+        setAuthMessage({
+          type: 'info',
+          text: '已打开授权浏览器：请在新窗口登录平台账号（B 站 / 抖音 / YouTube），登录完成后回到这里点击"确认授权"。',
+        })
+      } else {
+        setAuthMessage({ type: 'error', text: payload.error?.message || '无法打开授权浏览器，请确认 LinkMind 已配置 SOURCE_BROWSER_COMMAND。' })
+      }
+    } catch {
+      setAuthMessage({ type: 'error', text: '打开授权浏览器失败。' })
+    } finally {
+      setAuthWorking(false)
+    }
+  }
+
+  const confirmAuthSession = async () => {
+    setAuthWorking(true)
+    setAuthMessage(null)
+    try {
+      const response = await apiFetch('/api/linkmind/source-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'confirm' }),
+      })
+      const payload = await response.json()
+      if (response.ok && payload.status) {
+        setSessionStatus(String(payload.status))
+        setSessionOrigin(payload.entryOrigin || '')
+        setAuthMessage(
+          payload.status === 'ACTIVE'
+            ? { type: 'success', text: '授权成功！现在可以粘贴链接导入内容了。' }
+            : { type: 'info', text: `当前会话状态：${payload.status}` },
+        )
+      } else {
+        setAuthMessage({ type: 'error', text: payload.error?.message || '确认授权失败，请确认浏览器已登录并重试。' })
+      }
+    } catch {
+      setAuthMessage({ type: 'error', text: '确认授权失败。' })
+    } finally {
+      setAuthWorking(false)
+    }
+  }
+
   const renderPlugins = () => (
     <div className="space-y-4">
       {plugins.length === 0 && (
@@ -492,26 +572,6 @@ export default function Settings() {
                   <div className="mt-2 text-[11px] leading-4 text-outline">
                     同步 = 把 AetheL 的 AI 服务商/key/模型写入 LinkMind 的 .env（AI_API_KEY / AI_BASE_URL / AI_MODEL），重启 LinkMind 后生效。
                   </div>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="mb-1 block text-[11px] text-outline">轮询间隔（ms）</label>
-                      <input
-                        value={pluginPollInterval}
-                        onChange={(event) => setPluginPollInterval(event.target.value)}
-                        className="input-field h-9 w-full text-[12px]"
-                        inputMode="numeric"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-[11px] text-outline">轮询超时（ms）</label>
-                      <input
-                        value={pluginPollTimeout}
-                        onChange={(event) => setPluginPollTimeout(event.target.value)}
-                        className="input-field h-9 w-full text-[12px]"
-                        inputMode="numeric"
-                      />
-                    </div>
-                  </div>
                   {pluginMessage && (
                     <div
                       className={`mt-2 rounded-[16px] px-3 py-2 text-[11px] leading-4 ${
@@ -521,6 +581,95 @@ export default function Settings() {
                       }`}
                     >
                       {pluginMessage.text}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="mb-1 block text-[11px] text-outline">轮询间隔（ms）</label>
+                    <input
+                      value={pluginPollInterval}
+                      onChange={(event) => setPluginPollInterval(event.target.value)}
+                      className="input-field h-9 w-full text-[12px]"
+                      inputMode="numeric"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] text-outline">轮询超时（ms）</label>
+                    <input
+                      value={pluginPollTimeout}
+                      onChange={(event) => setPluginPollTimeout(event.target.value)}
+                      className="input-field h-9 w-full text-[12px]"
+                      inputMode="numeric"
+                    />
+                  </div>
+                </div>
+
+                <div className="border-t border-outline-variant/25 pt-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <label className="text-[11px] font-semibold text-on-surface">平台授权</label>
+                    <button
+                      onClick={refreshSourceSession}
+                      disabled={sessionLoading}
+                      className="flex items-center gap-1 rounded-full bg-white/42 px-2.5 py-1 text-[10px] text-outline transition-all hover:bg-white/60"
+                    >
+                      {sessionLoading ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+                      刷新状态
+                    </button>
+                  </div>
+                  <div className="mb-2 flex items-center gap-2 text-[11px]">
+                    <span
+                      className={`rounded-full px-2 py-0.5 font-semibold ${
+                        sessionStatus === 'ACTIVE'
+                          ? 'bg-primary-fixed/34 text-primary'
+                          : sessionStatus === 'AWAITING_CONFIRMATION'
+                            ? 'bg-secondary-container/45 text-secondary'
+                            : 'bg-white/42 text-outline'
+                      }`}
+                    >
+                      {sessionStatus === 'ACTIVE' ? '已授权' : sessionStatus === 'AWAITING_CONFIRMATION' ? '待确认' : sessionStatus === 'EXPIRED' ? '已过期' : sessionStatus === 'unavailable' ? '服务不可达' : '未授权'}
+                    </span>
+                    {sessionOrigin && <span className="truncate text-outline">{sessionOrigin}</span>}
+                  </div>
+                  <div className="mb-2 rounded-[16px] bg-white/30 px-3 py-2 text-[11px] leading-5 text-on-surface-variant ring-1 ring-white/45">
+                    导入 B 站 / 抖音 / YouTube 等内容需要平台登录授权（一次性）。点击"打开授权浏览器"，在 LinkMind 启动的窗口登录平台账号，然后回到这里确认。
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      value={authEntryUrl}
+                      onChange={(event) => setAuthEntryUrl(event.target.value)}
+                      className="input-field h-9 min-w-0 flex-1 text-[11px]"
+                      placeholder="平台链接，如 https://www.bilibili.com"
+                    />
+                    <button
+                      onClick={openAuthBrowser}
+                      disabled={authWorking || !authEntryUrl.trim()}
+                      className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-secondary-container/45 px-3.5 text-[11px] font-semibold text-secondary transition-all hover:bg-secondary-container disabled:opacity-45"
+                    >
+                      {authWorking ? <Loader2 size={11} className="animate-spin" /> : <ExternalLink size={11} />}
+                      打开授权浏览器
+                    </button>
+                    <button
+                      onClick={confirmAuthSession}
+                      disabled={authWorking || sessionStatus !== 'AWAITING_CONFIRMATION'}
+                      className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-primary-fixed/34 px-3.5 text-[11px] font-semibold text-primary transition-all hover:bg-primary-fixed/50 disabled:opacity-45"
+                    >
+                      <CheckCircle2 size={11} />
+                      确认授权
+                    </button>
+                  </div>
+                  {authMessage && (
+                    <div
+                      className={`mt-2 rounded-[16px] px-3 py-2 text-[11px] leading-4 ${
+                        authMessage.type === 'error'
+                          ? 'bg-error-container/55 text-on-error-container ring-1 ring-error/15'
+                          : authMessage.type === 'success'
+                            ? 'bg-primary-fixed/20 text-on-surface ring-1 ring-primary/20'
+                            : 'bg-white/40 text-on-surface-variant ring-1 ring-white/55'
+                      }`}
+                    >
+                      {authMessage.text}
                     </div>
                   )}
                 </div>

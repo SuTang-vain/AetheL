@@ -113,7 +113,12 @@ function createLinkMindMock() {
         seenIdempotencyKeys.push(String(idempotencyKey))
       }
       res.statusCode = 202
-      res.end(JSON.stringify({ importId: 'imp-1', status: 'PROCESSING', receivedUrl: parsed.url }))
+      res.end(JSON.stringify({
+        importId: 'imp-1',
+        status: 'PROCESSING',
+        receivedUrl: parsed.url,
+        receivedConsent: parsed.consent,
+      }))
       return
     }
     if (req.method === 'GET' && url.pathname === '/api/v1/imports/imp-1') {
@@ -124,6 +129,24 @@ function createLinkMindMock() {
     if (req.method === 'GET' && url.pathname === '/api/v1/knowledge-items/ki-1') {
       res.statusCode = 200
       res.end(JSON.stringify(KNOWLEDGE_ITEM_FIXTURE))
+      return
+    }
+    if (req.method === 'GET' && url.pathname === '/api/v1/source-session') {
+      res.statusCode = 200
+      res.end(JSON.stringify({ status: 'DISCONNECTED', mode: 'LOCAL_BROWSER', entryOrigin: null, updatedAt: '2026-08-02T00:00:00.000Z' }))
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/api/v1/source-session') {
+      let body = ''
+      for await (const chunk of req) body += chunk
+      const parsed = JSON.parse(body)
+      res.statusCode = 200
+      res.end(JSON.stringify({ status: 'AWAITING_CONFIRMATION', mode: 'LOCAL_BROWSER', entryOrigin: new URL(parsed.entryUrl).origin, updatedAt: '2026-08-02T00:00:01.000Z' }))
+      return
+    }
+    if (req.method === 'PATCH' && url.pathname === '/api/v1/source-session') {
+      res.statusCode = 200
+      res.end(JSON.stringify({ status: 'ACTIVE', mode: 'LOCAL_BROWSER', entryOrigin: 'https://www.bilibili.com', updatedAt: '2026-08-02T00:00:02.000Z' }))
       return
     }
     res.statusCode = 404
@@ -202,6 +225,7 @@ test('代理：POST /api/linkmind/imports 透传幂等键与请求体', async ()
   assert.equal(response.status, 202, JSON.stringify(payload))
   assert.equal(payload.importId, 'imp-1')
   assert.deepEqual(mockLinkMind.seenIdempotencyKeys, ['test-idem-key'])
+  assert.deepEqual(payload.receivedConsent, { termsVersion: '1.0', purpose: 'PERSONAL_KNOWLEDGE' })
 })
 
 test('代理：GET /api/linkmind/imports/:id 轮询透传', async () => {
@@ -230,6 +254,30 @@ test('importLink 完整流程：幂等导入→轮询→转换候选气泡', asy
 test('importLink 无链接返回 invalid', async () => {
   const result = await importLink('这里没有链接')
   assert.equal(result.status, 'invalid')
+})
+
+test('代理：source-session 状态查询与授权流转', async () => {
+  const initial = await request(baseUrl, 'GET', '/api/linkmind/source-session')
+  assert.equal(initial.response.status, 200)
+  assert.equal(initial.payload.status, 'DISCONNECTED')
+
+  const open = await request(baseUrl, 'POST', '/api/linkmind/source-session', {
+    action: 'open',
+    entryUrl: 'https://www.bilibili.com/video/BV1xx411c7mD',
+  })
+  assert.equal(open.response.status, 200)
+  assert.equal(open.payload.status, 'AWAITING_CONFIRMATION')
+  assert.equal(open.payload.entryOrigin, 'https://www.bilibili.com')
+
+  const confirm = await request(baseUrl, 'POST', '/api/linkmind/source-session', { action: 'confirm' })
+  assert.equal(confirm.response.status, 200)
+  assert.equal(confirm.payload.status, 'ACTIVE')
+
+  const invalid = await request(baseUrl, 'POST', '/api/linkmind/source-session', { action: 'nonsense' })
+  assert.equal(invalid.response.status, 400)
+
+  const missingUrl = await request(baseUrl, 'POST', '/api/linkmind/source-session', { action: 'open' })
+  assert.equal(missingUrl.response.status, 400)
 })
 
 test('气泡创建：source 来源元数据白名单落盘并回读', async () => {
