@@ -13,7 +13,7 @@ export default function App() {
   useWorkspacePersistence();
 
   return (
-    <Router>
+    <Router basename={__AETHEL_BASE_PATH__ || '/'}>
       <div className="flex min-h-screen">
         <MainNavigation />
         <Navigation />
