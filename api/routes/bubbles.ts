@@ -9,6 +9,28 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 11)
 }
 
+function sanitizeImportedSource(value: unknown): StoredBubble['source'] {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  const pick = (key: string) => (
+    typeof raw[key] === 'string' && (raw[key] as string).trim() ? String(raw[key]).trim() : undefined
+  )
+  const importId = pick('importId')
+  const knowledgeItemId = pick('knowledgeItemId')
+  const url = pick('url')
+  if (!importId || !knowledgeItemId || !url) return undefined
+  return {
+    importId,
+    knowledgeItemId,
+    url,
+    platform: pick('platform') || '',
+    accessedAt: pick('accessedAt') || new Date().toISOString(),
+    sourceType: raw.sourceType === 'creative' || raw.sourceType === 'regulation' ? raw.sourceType : 'market',
+    snippet: pick('snippet'),
+    evidenceType: pick('evidenceType'),
+  }
+}
+
 router.get('/', async (_req: Request, res: Response) => {
   try {
     const workspace = await readWorkspace()
@@ -50,6 +72,7 @@ router.post('/', async (req: Request, res: Response) => {
       sourceGroupId: req.body?.sourceGroupId ? String(req.body.sourceGroupId).trim() : undefined,
       sourceLabel: req.body?.sourceLabel ? String(req.body.sourceLabel).trim() : undefined,
       sourceFileName: req.body?.sourceFileName ? String(req.body.sourceFileName).trim() : undefined,
+      source: sanitizeImportedSource(req.body?.source),
       createdAt: req.body?.createdAt || now,
       updatedAt: req.body?.updatedAt || now,
     }

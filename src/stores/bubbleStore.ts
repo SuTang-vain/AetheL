@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import type { ImportedSourceMeta } from '../../api/storage/types.js'
 
 export interface Bubble {
   id: string
@@ -14,6 +15,7 @@ export interface Bubble {
   sourceGroupId?: string
   sourceLabel?: string
   sourceFileName?: string
+  source?: ImportedSourceMeta
   prdUsageCount?: number
   createdAt: string
   updatedAt: string
@@ -178,7 +180,7 @@ interface BubbleState {
     tag?: string,
     x?: number,
     y?: number,
-    metadata?: Pick<Bubble, 'sourceSkillId' | 'sourceGroupId' | 'sourceLabel' | 'sourceFileName'>,
+    metadata?: Pick<Bubble, 'sourceSkillId' | 'sourceGroupId' | 'sourceLabel' | 'sourceFileName' | 'source'>,
   ) => string
   updateBubble: (id: string, updates: Partial<Bubble>) => void
   deleteBubble: (id: string) => void

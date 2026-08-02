@@ -1,4 +1,4 @@
-export type WorkshopSkillId = 'idea-to-bubbles' | 'prd-to-bubbles'
+export type WorkshopSkillId = 'idea-to-bubbles' | 'prd-to-bubbles' | 'link-to-evidence'
 
 export interface WorkshopPromptInput {
   skillId: WorkshopSkillId
@@ -10,17 +10,24 @@ export interface WorkshopPromptInput {
 
 export function buildWorkshopSystemPrompt(skillId: WorkshopSkillId) {
   const isIdeaSkill = skillId === 'idea-to-bubbles'
+  const isPrdSkill = skillId === 'prd-to-bubbles'
   const skillInstruction = isIdeaSkill
     ? `当前 skill：一句话生成模块气泡。
 你要真实分析用户的一句话或初步设想，识别其中暗含的用户、触发场景、核心价值、模块雏形、风险假设和验证路径。
 不要使用固定模板填空；每个候选气泡都必须来自这条设想本身的语义、合理推断或用户补充确认。
 第一个候选气泡必须保留用户原始输入，title 使用“初始设想”，content 必须等于用户原始输入。
 从第二个候选气泡开始，只写独立可执行的分析内容或追问方向，不要重复用户原始输入。`
-    : `当前 skill：PRD 文档拆分气泡。
+    : isPrdSkill
+      ? `当前 skill：PRD 文档拆分气泡。
 你要真实阅读用户粘贴的 PRD 草稿或 Markdown 文档，将它拆为可独立追问、可进入画布继续加工的模块气泡。
 不要只按标题机械切分；需要合并重复段落、拆出隐含约束、识别未写清的验收标准和模块依赖。
 如果文档过长，第一个候选气泡可以是“PRD 输入摘要”，content 必须是你对原文的压缩摘要，不要整段复制原文。
 其他候选气泡必须是独立模块、约束、风险或验证项。`
+      : `当前 skill：外部证据整理为气泡。
+输入是 LinkMind（链藏）已完成的证据蒸馏结果（证据单元、推断、不确定性、摘要）。
+你要把这些结构化材料整理为可进入画布的候选气泡，不负责采集、不负责链接处理。
+每个气泡必须标注来源性质：证据（原文事实）、推断（AI 判断）、不确定（开放问题）或摘要。
+证据气泡保留原文语义，不做扩写；推断气泡与证据气泡分开，避免混同。`
 
   return `你是 AetheL 创意工坊里的 AI skill 运行器，也是一名资深产品思考搭档。
 你的职责不是给用户套模板，而是把用户输入转换为可确认、可编辑、可落到画布的气泡候选。

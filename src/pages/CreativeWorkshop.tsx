@@ -27,10 +27,13 @@ import {
   isSupportedPrdFile,
   type ParsedPrdFile,
 } from '@/lib/prdFileParser'
+import { importLink, guessPlatformFromUrl, type LinkCandidateBubble } from '@/lib/linkmindImport'
+import type { ImportedSourceMeta } from '../../api/storage/types.js'
 
 const SKILL_ACCENT: Record<WorkshopSkillId, string> = {
   'idea-to-bubbles': '#ad2c0d',
   'prd-to-bubbles': '#0f8a9d',
+  'link-to-evidence': '#6d28d9',
 }
 
 export default function CreativeWorkshop() {
@@ -51,16 +54,20 @@ export default function CreativeWorkshop() {
   const [confirmationAnswers, setConfirmationAnswers] = useState<Record<string, string>>({})
   const [confirmationNote, setConfirmationNote] = useState('')
   const [createdIds, setCreatedIds] = useState<string[]>([])
+  const [isImportingLink, setIsImportingLink] = useState(false)
+  const [linkImportError, setLinkImportError] = useState('')
+  const [linkCandidates, setLinkCandidates] = useState<LinkCandidateBubble[]>([])
+  const [linkImportMeta, setLinkImportMeta] = useState<{ importId: string; knowledgeItemId: string; url: string; sourceSummary?: string } | null>(null)
   const activeSkill = skills.find((skill) => skill.id === activeSkillId) || skills[0]
   const enabledSkills = skills.filter((skill) => skill.enabled)
-  const activeInput = activeSkillId === 'idea-to-bubbles' ? ideaInput : prdInput
+  const activeInput = activeSkillId === 'idea-to-bubbles' || activeSkillId === 'link-to-evidence' ? ideaInput : prdInput
   const previewBubbles = skillResult?.candidateBubbles || []
 
   useEffect(() => {
     const requestedSkillId = searchParams.get('skill') as WorkshopSkillId | null
     if (
       requestedSkillId
-      && ['idea-to-bubbles', 'prd-to-bubbles'].includes(requestedSkillId)
+      && ['idea-to-bubbles', 'prd-to-bubbles', 'link-to-evidence'].includes(requestedSkillId)
       && requestedSkillId !== activeSkillId
     ) {
       setActiveSkill(requestedSkillId)
@@ -77,11 +84,15 @@ export default function CreativeWorkshop() {
     setUploadError('')
     setIsReadingPrdFile(false)
     setIsDraggingPrdFile(false)
+    setIsImportingLink(false)
+    setLinkImportError('')
+    setLinkCandidates([])
+    setLinkImportMeta(null)
     clearError()
   }, [activeSkillId, clearError])
 
   const updateInput = (value: string) => {
-    if (activeSkillId === 'idea-to-bubbles') {
+    if (activeSkillId === 'idea-to-bubbles' || activeSkillId === 'link-to-evidence') {
       setIdeaInput(value)
     } else {
       setPrdInput(value)
@@ -90,6 +101,9 @@ export default function CreativeWorkshop() {
     setConfirmationAnswers({})
     setConfirmationNote('')
     setCreatedIds([])
+    setLinkImportError('')
+    setLinkCandidates([])
+    setLinkImportMeta(null)
     if (activeSkillId === 'prd-to-bubbles') {
       setUploadError('')
       if (uploadedPrdFileName) {
@@ -157,6 +171,47 @@ export default function CreativeWorkshop() {
   const runSkill = async (withConfirmation = false) => {
     if (!activeSkill?.enabled || activeInput.trim().length === 0) return
 
+    if (activeSkillId === 'link-to-evidence') {
+      setLinkImportError('')
+      setIsImportingLink(true)
+      try {
+        const linkResult = await importLink(activeInput)
+        if (linkResult.status === 'completed' && linkResult.candidates.length > 0) {
+          setLinkCandidates(linkResult.candidates)
+          setLinkImportMeta({
+            importId: linkResult.importId || '',
+            knowledgeItemId: linkResult.knowledgeItemId || '',
+            url: linkResult.candidates[0]?.sourceUrl || activeInput.trim(),
+            sourceSummary: linkResult.sourceSummary,
+          })
+          setSkillResult({
+            analysisSummary: linkResult.sourceSummary || `已从 ${linkResult.candidates.length} 条证据生成候选气泡`,
+            needsConfirmation: false,
+            confidence: 1,
+            confirmationPrompt: '',
+            clarificationQuestions: [],
+            candidateBubbles: linkResult.candidates.map((candidate) => ({
+              title: candidate.title,
+              content: candidate.content,
+              tag: candidate.tag,
+              rationale: candidate.rationale,
+            })),
+            suggestedNextActions: ['确认后生成气泡', '进入画布继续整理'],
+          })
+          setCreatedIds([])
+        } else {
+          setSkillResult(null)
+          setLinkImportError(linkResult.message || '导入失败，请稍后重试。')
+        }
+      } catch {
+        setSkillResult(null)
+        setLinkImportError('导入过程出现异常，请稍后重试。')
+      } finally {
+        setIsImportingLink(false)
+      }
+      return
+    }
+
     const answers = Object.entries(confirmationAnswers)
       .map(([id, answer]) => {
         const question = skillResult?.clarificationQuestions.find((item) => item.id === id)
@@ -186,20 +241,39 @@ export default function CreativeWorkshop() {
     if (createdIds.length > 0) return createdIds
     if (!activeSkill?.enabled || previewBubbles.length === 0) return []
     const sourceGroupId = `${activeSkillId}-${Date.now().toString(36)}`
-    const ids = previewBubbles.map((bubble: WorkshopCandidateBubble, index: number) => (
-      addBubble(
+    const isLinkSkill = activeSkillId === 'link-to-evidence'
+    const ids = previewBubbles.map((bubble: WorkshopCandidateBubble, index: number) => {
+      const linkBubble = isLinkSkill ? linkCandidates[index] : undefined
+      const sourceMeta: ImportedSourceMeta | undefined = isLinkSkill && linkImportMeta && linkBubble
+        ? {
+          importId: linkImportMeta.importId,
+          knowledgeItemId: linkImportMeta.knowledgeItemId,
+          url: linkBubble.sourceUrl || linkImportMeta.url,
+          platform: guessPlatformFromUrl(linkImportMeta.url),
+          accessedAt: new Date().toISOString(),
+          sourceType: 'market',
+          snippet: linkImportMeta.sourceSummary,
+          evidenceType: linkBubble.evidenceType,
+        }
+        : undefined
+      return addBubble(
         bubble.content,
-        bubble.tag || (activeSkillId === 'idea-to-bubbles' ? '创意工坊' : 'PRD拆解'),
+        bubble.tag || (activeSkillId === 'idea-to-bubbles' ? '创意工坊' : activeSkillId === 'prd-to-bubbles' ? 'PRD拆解' : '外部证据'),
         (index % 3) * 240 - 240,
         Math.floor(index / 3) * 150 - 120,
         {
           sourceSkillId: activeSkillId,
           sourceGroupId,
-          sourceLabel: activeSkillId === 'idea-to-bubbles' ? '一句话生成模块气泡' : 'PRD 拆解 / 文档气泡化',
+          sourceLabel: isLinkSkill
+            ? '从链接导入研究材料'
+            : activeSkillId === 'idea-to-bubbles'
+              ? '一句话生成模块气泡'
+              : 'PRD 拆解 / 文档气泡化',
           sourceFileName: activeSkillId === 'prd-to-bubbles' ? uploadedPrdFileName || undefined : undefined,
+          ...(sourceMeta ? { source: sourceMeta } : {}),
         },
       )
-    ))
+    })
     setCreatedIds(ids)
     setSelectedBubbleIds(ids)
     setActiveBubble(ids[0] || null, { includeInSelection: false })
@@ -300,12 +374,12 @@ export default function CreativeWorkshop() {
               </div>
             </div>
 
-            {activeSkillId === 'idea-to-bubbles' ? (
+            {activeSkillId === 'idea-to-bubbles' || activeSkillId === 'link-to-evidence' ? (
               <textarea
                 value={ideaInput}
                 onChange={(event) => updateInput(event.target.value)}
                 className="input-field min-h-[180px] w-full resize-none text-[14px] leading-7"
-                placeholder="输入一句初步设想..."
+                placeholder={activeSkillId === 'link-to-evidence' ? '粘贴外部链接（视频/文章 URL）...' : '输入一句初步设想...'}
               />
             ) : (
               <div className="space-y-3">
@@ -387,21 +461,23 @@ export default function CreativeWorkshop() {
 
             <button
               onClick={() => runSkill(false)}
-              disabled={!activeSkill?.enabled || activeInput.trim().length === 0 || isLoading}
+              disabled={!activeSkill?.enabled || activeInput.trim().length === 0 || isLoading || isImportingLink}
               className="btn-liquid mt-4 flex w-full items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-40"
               data-testid="run-workshop-skill"
             >
-              {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              运行 AI Skill
+              {(isLoading || isImportingLink) ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              {activeSkillId === 'link-to-evidence'
+                ? (isImportingLink ? '正在导入...' : '导入并分析')
+                : '运行 AI Skill'}
             </button>
 
-            {error && (
+            {(error || linkImportError) && (
               <div className="mt-4 rounded-[22px] bg-error-container/60 p-3 text-[12px] leading-5 text-on-error-container ring-1 ring-error/15">
                 <div className="mb-1 flex items-center gap-2 font-semibold">
                   <AlertCircle size={14} />
-                  AI skill 运行失败
+                  {activeSkillId === 'link-to-evidence' ? '导入失败' : 'AI skill 运行失败'}
                 </div>
-                {error}
+                {error || linkImportError}
               </div>
             )}
 

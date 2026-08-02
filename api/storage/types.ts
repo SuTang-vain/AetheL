@@ -1,3 +1,18 @@
+/**
+ * LinkMind 导入生成的气泡来源元数据。
+ * 对齐 docs/linkmind-integration.md §5.4 的 ExternalEvidenceSource 草案。
+ */
+export interface ImportedSourceMeta {
+  importId: string
+  knowledgeItemId: string
+  url: string
+  platform: string
+  accessedAt: string
+  sourceType: 'market' | 'creative' | 'regulation'
+  snippet?: string
+  evidenceType?: string
+}
+
 export interface StoredBubble {
   id: string
   content: string
@@ -11,6 +26,7 @@ export interface StoredBubble {
   sourceGroupId?: string
   sourceLabel?: string
   sourceFileName?: string
+  source?: ImportedSourceMeta
   createdAt: string
   updatedAt: string
 }

@@ -1,12 +1,12 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
-export type WorkshopSkillId = 'idea-to-bubbles' | 'prd-to-bubbles'
+export type WorkshopSkillId = 'idea-to-bubbles' | 'prd-to-bubbles' | 'link-to-evidence'
 
 export interface WorkshopSkill {
   id: WorkshopSkillId
   name: string
-  type: 'bubble-generator' | 'prd-parser'
+  type: 'bubble-generator' | 'prd-parser' | 'link-importer'
   description: string
   enabled: boolean
   installedAt: string
@@ -35,6 +35,14 @@ const defaultSkills: WorkshopSkill[] = [
     name: 'PRD 拆解 / 文档气泡化',
     type: 'prd-parser',
     description: '把 PRD 草稿反向结构化为模块、约束、风险和验证气泡。',
+    enabled: true,
+    installedAt: now,
+  },
+  {
+    id: 'link-to-evidence',
+    name: '从链接导入研究材料',
+    type: 'link-importer',
+    description: '粘贴外部链接，由 LinkMind 采集证据，转换为证据/推断/不确定气泡。',
     enabled: true,
     installedAt: now,
   },

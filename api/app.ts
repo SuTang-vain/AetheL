@@ -10,6 +10,7 @@ import memoryRoutes from './routes/memory.js'
 import bubbleRoutes from './routes/bubbles.js'
 import snapshotRoutes from './routes/snapshots.js'
 import workspaceRoutes from './routes/workspace.js'
+import linkmindRoutes from './routes/linkmind.js'
 
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -34,6 +35,7 @@ app.use('/api/memory', memoryRoutes)
 app.use('/api/bubbles', bubbleRoutes)
 app.use('/api/snapshots', snapshotRoutes)
 app.use('/api/workspace', workspaceRoutes)
+app.use('/api/linkmind', linkmindRoutes)
 
 app.use(
   '/api/health',
