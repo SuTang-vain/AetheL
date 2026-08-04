@@ -1,4 +1,4 @@
-export type AIProvider = 'modelscope' | 'deepseek' | 'moonshot'
+export type AIProvider = 'modelscope' | 'deepseek' | 'moonshot' | 'babel'
 export type AIProviderSelection = AIProvider | 'auto'
 export type AITaskProfile =
   | 'fast-json'
@@ -25,18 +25,22 @@ export interface AITaskProfileConfig {
   responseFormatJson?: boolean
 }
 
-export const providerOrder: AIProvider[] = ['modelscope', 'deepseek', 'moonshot']
+export const providerOrder: AIProvider[] = ['babel', 'modelscope', 'deepseek', 'moonshot']
 
 export const defaultModels: Record<AIProvider, string> = {
   modelscope: 'moonshotai/Kimi-K2.5',
   deepseek: 'deepseek-v4-pro',
   moonshot: 'kimi-k2.6',
+  // BabeL-O 引擎：模型选择权在 BabeL-O（ADR-B2），AetheL 传空 model，
+  // BabeL-O 按 activeProfile/defaultModel 解析。
+  babel: '',
 }
 
 export const providerBaseURLs: Record<AIProvider, string> = {
   modelscope: 'https://api-inference.modelscope.cn/v1',
   deepseek: 'https://api.deepseek.com',
   moonshot: 'https://api.moonshot.cn/v1',
+  babel: '',
 }
 
 export const taskProfiles: Record<AITaskProfile, AITaskProfileConfig> = {
@@ -109,6 +113,12 @@ export function buildAIConfigsFromEnv(): Record<AIProvider, AIConfig> {
       baseURL: providerBaseURLs.moonshot,
       apiKey: process.env.MOONSHOT_API_KEY || '',
       model: defaultModels.moonshot,
+    },
+    babel: {
+      provider: 'babel',
+      baseURL: process.env.BABEL_NEXUS_URL ? `${process.env.BABEL_NEXUS_URL}/v1` : '',
+      apiKey: process.env.BABEL_NEXUS_API_KEY || '',
+      model: defaultModels.babel,
     },
   }
 }
