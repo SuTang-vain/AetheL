@@ -2,7 +2,7 @@
 
 > 状态：执行中（人员与沟通渠道已按 2026-08-02 项目启动会确定，见 §1、§7）
 > 背景：两条功能线（A：LinkMind 外部证据层集成；B：本地 Agent CLI 驱动）分别由不同开发者开发。
-> 依据：`docs/linkmind-integration.md`、`docs/local-agent-cli-driver.md`（契约事实源）。
+> 依据：`docs/linkmind-integration.md`、`docs/babel-ai-engine.md`（契约事实源）。
 > 来源：2026-08-02 启动会纪要（含原始转录）：https://dcnk566ts94k.feishu.cn/docx/K9TadjJCVobhnRxvSKUcGoqXnpc
 > 参考：LinkMind 仓库自身的 `docs/development-workflow.md`（四人并行工作流，本方案沿用其"契约冻结 + 短分支 + 小 PR"原则）。
 
@@ -11,7 +11,7 @@
 | 开发者 | 工作线 | 交付物 |
 | --- | --- | --- |
 | 苏棠（Dev A） | 链路 A：LinkMind 集成 | `linkmind-integration.md` 的 P0/P1（外部证据层、快照互通） |
-| 苏和（Dev B） | 链路 B：本地 Agent CLI 驱动 | `local-agent-cli-driver.md` 的 M1/M2（local-cli provider、流式 chat） |
+| 苏和（Dev B） | 链路 B：BabeL-O AI 引擎接入 | `babel-ai-engine.md` 的 M1/M2（chat completions 端点、AetheL provider 接入、memory 与模型列表） |
 | 越天野（学长） | 体验测试 / 用户引导自动化 / 记忆预测调研 / live2D 桌宠 | 验收清单、引导方案、记忆方案调研 |
 | 苏棠主导、苏和评审 | 共享基础 | `isAIProviderConfigured` 重构 + AIProvider 扩展 + CI 设施 |
 
@@ -94,7 +94,7 @@ isAIProviderConfigured(configs: Record<AIProvider, AIConfig>): boolean
 main（保护）
  ├── 基础 PR：docs + isAIProviderConfigured + CI        （双方评审）
  ├── feature/linkmind-integration   ← 苏棠（Dev A）工作线（已存在）
- └── feature/local-agent-driver     ← 苏和（Dev B）工作线（已创建）
+ └── feature/babel-ai-engine         ← 苏和（Dev B）工作线（原 local-agent-cli-driver，已更名）
 ```
 
 - 双方从 `main`（基础 PR 合入后）拉各自分支，**不再从彼此的 feature 分支拉**；
@@ -138,9 +138,9 @@ main（保护）
 | 时间 | 里程碑 | Dev A（链路 A） | Dev B（链路 B） | 验收 |
 | --- | --- | --- | --- | --- |
 | Day 1 | 契约冻结 | 评审基础 PR | 评审基础 PR | 基础 PR 合入 main，CI 绿 |
-| Day 2-6 | 第一切片 | P0：代理 + link-to-evidence skill + 转换层 | M1：claude/codex adapter + 队列 + 安全 | 各自 PR 合入 main；越天野开始体验 demo |
-| Day 7 | 联合集成 | 接缝用例（mock adapter） | adapter 接口联调 | 接缝测试绿；越天野输出首轮体验反馈 |
-| Day 8-9 | 第二切片 | P1：快照互通、追问注入 | M2：流式 chat + Settings UI | Settings 分区无覆盖 |
+| Day 2-6 | 第一切片 | P0：代理 + link-to-evidence skill + 转换层 | M1：BabeL-O chat completions 端点 + AetheL provider 接入 | 各自 PR 合入 main；越天野开始体验 demo |
+| Day 7 | 联合集成 | 接缝用例（mock adapter） | 端点契约联调（local provider 冒烟） | 接缝测试绿；越天野输出首轮体验反馈 |
+| Day 8-9 | 第二切片 | P1：快照互通、追问注入 | M2：memory 改接 MemoryOS + 设置页模型列表/选择器 | Settings 分区无覆盖 |
 | Day 10 | 复盘 | 联合冒烟：链接→证据气泡→本地 agent 快照 | 同左 | 双线闭环 demo；越天野验收通过 |
 
 > 说明：时间为相对节奏示例，具体以实际开发速度调整；里程碑切片可互换顺序（两条线互不阻塞）。
@@ -159,7 +159,8 @@ main（保护）
 
 ## 10. 决策记录（2026-08-02 启动会已定项）
 
-- 分支：`feature/linkmind-integration`（苏棠）+ `feature/local-agent-driver`（苏和），已创建并推送；
+- 分支：`feature/linkmind-integration`（苏棠）+ `feature/babel-ai-engine`（苏和），已创建并推送；
+- 策略变更（2026-08）：Dev B 工作线目标由"本地 Agent CLI 驱动"调整为"BabeL-O AI 引擎接入"，分支更名，方案文档 `docs/local-agent-cli-driver.md` → `docs/babel-ai-engine.md`；
 - 契约：三份方案文档已合入 `main`（`a3a9a12`、`7ad8ebe`）；
 - CI：GitHub Actions 已配置（check + lint + test:integration），既有 lint 阻塞项已修复（`37dbce4`）；
 - 人员与渠道：见 §1、§7。
