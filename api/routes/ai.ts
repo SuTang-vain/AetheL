@@ -11,17 +11,10 @@ import {
 } from '../aiResponseSchemas.js'
 import {
   buildAIConfigsFromEnv,
-  defaultModels,
-  getAIConfigFromEnv,
   isProviderConfigured,
-  providerBaseURLs,
-  resolveAIProviderFromEnv,
-  resolveAutoCandidates,
-  resolveAISelectionFromEnv,
   taskProfiles,
   type AIConfig,
   type AIProvider,
-  type AIProviderSelection,
   type AITaskProfile,
 } from '../aiProfiles.js'
 import {
@@ -58,8 +51,8 @@ dotenv.config()
 
 const router = Router()
 
-let aiConfig = getAIConfigFromEnv()
-let aiSelection: AIProviderSelection = resolveAISelectionFromEnv()
+// BabeL-O 是唯一 AI 引擎（2026-08 产品决策）：配置只来自 env，模型选择权在 BabeL-O。
+let aiConfig: AIConfig = buildAIConfigsFromEnv().babel
 let client = new OpenAI({
   baseURL: aiConfig.baseURL,
   apiKey: aiConfig.apiKey,
@@ -109,7 +102,7 @@ export function clearAIResponseCacheForTests() {
   aiResponseCache.clear()
 }
 
-export { clearAIMetricsForTests, getAIConfigFromEnv }
+export { clearAIMetricsForTests }
 
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) {
@@ -259,25 +252,11 @@ function buildProfilePayload(
     model: payload.model || config.model,
   }
 
-  if (config.provider === 'moonshot') {
-    nextPayload.max_completion_tokens = profileConfig.maxTokens
-  } else {
-    nextPayload.max_tokens = profileConfig.maxTokens
-  }
-
-  if (config.provider === 'deepseek' && profileConfig.disableDeepSeekThinking) {
-    nextPayload.extra_body = {
-      ...(nextPayload.extra_body || {}),
-      thinking: { type: 'disabled' },
-    }
-  }
+  nextPayload.max_tokens = profileConfig.maxTokens
 
   if (profileConfig.responseFormatJson && !nextPayload.stream) {
-    // Some providers (like Moonshot/Kimi) might struggle with strict json_object mode
-    // but we keep the instruction in the prompt via runProfileCompletion
-    if (config.provider !== 'moonshot') {
-      nextPayload.response_format = { type: 'json_object' }
-    }
+    // BabeL-O 网关透传 response_format（json_object）
+    nextPayload.response_format = { type: 'json_object' }
   }
 
   return nextPayload
@@ -297,13 +276,8 @@ async function runProfileCompletion(
   } = {},
 ): Promise<{ response: CompletionResponse; meta: CompletionResult & { provider: AIProvider; model: string; profile: AITaskProfile; fallbackReason?: string } }> {
   const profileConfig = taskProfiles[profile]
-  const configs = buildAIConfigsFromEnv()
-  const candidates = aiSelection === 'auto'
-    ? resolveAutoCandidates(profile, {
-      ...configs,
-      [aiConfig.provider]: aiConfig,
-    })
-    : [aiConfig]
+  // BabeL-O 是唯一引擎：无候选链，单配置直连
+  const candidates = [aiConfig]
   const cache = options.cache ?? profileConfig.cache
   let fallbackReason: string | undefined
   let lastError: unknown
@@ -369,7 +343,7 @@ async function runProfileCompletion(
         success: false,
       })
 
-      if (aiSelection !== 'auto' || index === candidates.length - 1 || !isFallbackError(error)) {
+      if (index === candidates.length - 1 || !isFallbackError(error)) {
         throw error
       }
 
@@ -380,61 +354,20 @@ async function runProfileCompletion(
   throw lastError
 }
 
-// API endpoint to update AI config from frontend
+// API endpoint to update AI config from frontend（BabeL-O 唯一引擎）
 router.post('/config', async (req: Request, res: Response) => {
   try {
-    const { provider, apiKey, model } = req.body
-
-    if (provider === 'auto') {
-      aiSelection = 'auto'
-      aiConfig = getAIConfigFromEnv()
-      client = new OpenAI({
-        baseURL: aiConfig.baseURL,
-        apiKey: aiConfig.apiKey,
-      })
-      defaultModel = aiConfig.model
-      aiResponseCache.clear()
-
-      res.json({ success: true, message: 'AI 自动调用已启用' })
+    const babelConfig = buildAIConfigsFromEnv().babel
+    if (!babelConfig.baseURL) {
+      res.status(400).json({ success: false, error: 'BABEL_NEXUS_URL 未配置，无法使用 BabeL-O 引擎', code: 'BABEL_NOT_CONFIGURED' })
       return
     }
+    client = new OpenAI({ baseURL: babelConfig.baseURL, apiKey: babelConfig.apiKey })
+    defaultModel = babelConfig.model
+    aiConfig = babelConfig
+    aiResponseCache.clear()
 
-    if (provider === 'babel') {
-      // BabeL-O 引擎：密钥与模型由 BabeL-O 侧管理（ADR-B2），AetheL 仅切换 provider。
-      const babelConfig = buildAIConfigsFromEnv().babel
-      if (!babelConfig.baseURL) {
-        res.status(400).json({ success: false, error: 'BABEL_NEXUS_URL 未配置，无法使用 BabeL-O 引擎', code: 'BABEL_NOT_CONFIGURED' })
-        return
-      }
-      client = new OpenAI({ baseURL: babelConfig.baseURL, apiKey: babelConfig.apiKey })
-      defaultModel = babelConfig.model
-      aiSelection = 'babel'
-      aiConfig = babelConfig
-      aiResponseCache.clear()
-
-      res.json({ success: true, message: '已切换到 BabeL-O 引擎' })
-      return
-    }
-
-    if (provider && apiKey && provider in providerBaseURLs) {
-      const selectedProvider = provider as AIProvider
-      const baseURL = providerBaseURLs[selectedProvider]
-      if (baseURL) {
-        client = new OpenAI({
-          baseURL,
-          apiKey: apiKey,
-        })
-        defaultModel = model || defaultModels[selectedProvider]
-        aiSelection = selectedProvider
-        aiConfig = { provider: selectedProvider, baseURL, apiKey, model: defaultModel }
-        aiResponseCache.clear()
-
-        res.json({ success: true, message: 'AI 配置已更新' })
-        return
-      }
-    }
-
-    res.status(400).json({ success: false, error: 'Invalid configuration' })
+    res.json({ success: true, message: 'BabeL-O 引擎已生效' })
   } catch (error) {
     res.status(500).json({ success: false, error: (error as Error).message })
   }
@@ -442,11 +375,10 @@ router.post('/config', async (req: Request, res: Response) => {
 
 // Get current AI config (without exposing API key)
 router.get('/config', (req: Request, res: Response) => {
-  const configs = buildAIConfigsFromEnv()
-  const selected = configs[resolveAIProviderFromEnv(configs)]
+  const selected = buildAIConfigsFromEnv().babel
   res.json({
     success: true,
-    selection: aiSelection,
+    selection: 'babel',
     provider: aiConfig.provider,
     model: defaultModel,
     hasApiKey: isProviderConfigured(selected),
@@ -566,9 +498,8 @@ router.post('/categorize', async (req: Request, res: Response) => {
       return
     }
 
-    // 实时判定当前生效 provider 是否可用（避免模块级 aiConfig 在 env 变化后过期）
-    const liveConfigs = buildAIConfigsFromEnv()
-    const liveSelected = liveConfigs[resolveAIProviderFromEnv(liveConfigs)]
+    // 实时判定引擎是否可用（避免模块级 aiConfig 在 env 变化后过期）
+    const liveSelected = buildAIConfigsFromEnv().babel
     if (!isProviderConfigured(liveSelected) && !completionOverride) {
       res.status(412).json({ success: false, error: 'AI provider not configured', code: 'NO_API_KEY' })
       return

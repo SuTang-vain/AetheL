@@ -1,6 +1,12 @@
 import { strict as assert } from 'node:assert'
 import http from 'node:http'
 
+// BabeL-O 唯一引擎的路由语义测试：
+// - 归类/快照请求携带 response_format=json_object 且 model 为空（ADR-B2）
+// - fast-json 归类缓存命中、snapshot-large 不使用缓存
+// - schema 校验失败不再 provider fallback，直接报错
+// - provider 失败（429）直接失败，无 fallback 链
+
 type TestCase = {
   name: string
   run: () => Promise<void>
@@ -35,60 +41,22 @@ async function request(baseUrl: string, method: string, pathname: string, body?:
   return { response, payload }
 }
 
-const originalEnv = {
-  AI_PROVIDER: process.env.AI_PROVIDER,
-  MODELSCOPE_API_KEY: process.env.MODELSCOPE_API_KEY,
-  DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
-  MOONSHOT_API_KEY: process.env.MOONSHOT_API_KEY,
-}
-
-function restoreEnv() {
-  for (const [key, value] of Object.entries(originalEnv)) {
-    if (value === undefined) {
-      delete process.env[key]
-    } else {
-      process.env[key] = value
-    }
-  }
-}
-
-function setEnv(env: Partial<Record<keyof typeof originalEnv, string>>) {
-  delete process.env.AI_PROVIDER
-  delete process.env.MODELSCOPE_API_KEY
-  delete process.env.DEEPSEEK_API_KEY
-  delete process.env.MOONSHOT_API_KEY
-  for (const [key, value] of Object.entries(env)) {
-    if (value !== undefined) process.env[key] = value
-  }
-}
-
 async function main() {
   process.env.NODE_ENV = 'test'
-  setEnv({
-    AI_PROVIDER: 'auto',
-    MODELSCOPE_API_KEY: 'ms-test-key',
-    DEEPSEEK_API_KEY: 'deepseek-test-key',
-    MOONSHOT_API_KEY: 'moonshot-test-key',
-  })
+  process.env.BABEL_NEXUS_URL = 'http://127.0.0.1:3999'
+  process.env.BABEL_NEXUS_API_KEY = 'test-key'
 
   const aiRoutes = await import('../../api/routes/ai.js')
   const { default: app } = await import('../../api/app.js')
-  const calls: Array<{ model: string; messages: Array<{ role: string; content: string }>; max_tokens?: number; max_completion_tokens?: number; extra_body?: unknown }> = []
+  const calls: Array<Record<string, unknown>> = []
 
   aiRoutes.clearAIResponseCacheForTests()
   aiRoutes.clearAIMetricsForTests()
   aiRoutes.setAICompletionOverrideForTests(async (payload) => {
-    calls.push(payload as { model: string; messages: Array<{ role: string; content: string }>; max_tokens?: number; max_completion_tokens?: number; extra_body?: unknown })
+    calls.push(payload as Record<string, unknown>)
+    const content = payload.messages[0]?.content || ''
 
-    if (
-      payload.model === 'moonshotai/Kimi-K2.5'
-      && calls.length === 1
-      && payload.messages[0]?.content.includes('碎片化的灵感进行归类整理')
-    ) {
-      throw new Error('429 rate limit')
-    }
-
-    if (payload.messages[0]?.content.includes('碎片化的灵感进行归类整理')) {
+    if (content.includes('碎片化的灵感进行归类整理')) {
       return {
         choices: [{
           message: {
@@ -102,33 +70,17 @@ async function main() {
       }
     }
 
-    if (payload.messages[0]?.content.includes('PRD 分章节草稿')) {
+    if (content.includes('认知负荷优化专家')) {
+      // 快照：默认返回完整认知结构
       return {
         choices: [{
           message: {
             content: JSON.stringify({
-              sections: [{ groupId: 'core', title: '核心体验', content: '## 目标\n完成核心体验。' }],
-            }),
-          },
-        }],
-      }
-    }
-
-    if (payload.messages[0]?.content.includes('认知负荷优化专家')) {
-      if (payload.model === 'moonshotai/Kimi-K2.5') {
-        return { choices: [{ message: { content: '{}' } }] }
-      }
-      return {
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              statusSnapshot: '二轮快照通过 fallback provider 形成。',
-              logicFlow: '第一个 provider 返回空结构后，路由应继续尝试下一个 provider。',
-              cognitiveGaps: ['继续验证二轮稳定性'],
-              semanticAnchors: [{ label: '二轮稳定性', reason: '避免空 JSON 触发本地模板快照', bubbleIds: ['b1'] }],
-              wakeTrigger: '继续验证快照二轮生成。',
-              level2: [{ anchor: '二轮稳定性', summary: 'schema 错误会触发 provider fallback。', bubbleIds: ['b1'] }],
-              level3: [{ bubbleId: 'b1', source: 'mock', deepLogic: '来自第二个 provider。' }],
+              statusSnapshot: '当前状态',
+              logicFlow: '逻辑脉络',
+              cognitiveGaps: ['缺口'],
+              semanticAnchors: [{ label: '锚点', reason: '原因' }],
+              wakeTrigger: '唤醒指令',
             }),
           },
         }],
@@ -140,105 +92,86 @@ async function main() {
 
   const { server, baseUrl } = await listen(app)
 
-  test('auto routing falls back and records metrics for fast-json tasks', async () => {
+  test('归类请求：response_format=json_object 且 model 为空（ADR-B2）', async () => {
+    calls.length = 0
     const { response, payload } = await request(baseUrl, 'POST', '/api/ai/categorize', {
-      bubbles: [{ id: 'b1', content: '需要快速归类', tag: '体验' }],
+      bubbles: [{ id: 'b1', content: '老人吃药提醒' }],
+      existingTags: [],
     })
-    const config = await request(baseUrl, 'GET', '/api/ai/config')
-
     assert.equal(response.status, 200)
     assert.equal(payload.success, true)
-    assert.equal(calls[0].model, 'moonshotai/Kimi-K2.5')
-    assert.equal(calls[1].model, 'deepseek-v4-pro')
-    assert.deepEqual(calls[1].extra_body, { thinking: { type: 'disabled' } })
-    assert.equal(config.payload.metrics[0].provider, 'deepseek')
-    assert.equal(config.payload.metrics[0].profile, 'fast-json')
-    assert.match(config.payload.metrics[0].fallbackReason, /429/)
-  })
-
-  test('manual provider overrides auto routing and uses Moonshot token cap', async () => {
-    calls.splice(0)
-    aiRoutes.clearAIResponseCacheForTests()
-    await request(baseUrl, 'POST', '/api/ai/config', {
-      provider: 'moonshot',
-      apiKey: 'moonshot-test-key',
-      model: 'kimi-k2.6',
-    })
-
-    const { response, payload } = await request(baseUrl, 'POST', '/api/ai/generate-prd-sections', {
-      groups: [{ id: 'core', title: '核心体验', tag: '体验', bubbles: [{ id: 'b1', content: '生成章节' }] }],
-    })
-
-    assert.equal(response.status, 200)
-    assert.equal(payload.sections[0].groupId, 'core')
     assert.equal(calls.length, 1)
-    assert.equal(calls[0].model, 'kimi-k2.6')
-    assert.equal(calls[0].max_completion_tokens, 2200)
+    assert.equal(calls[0].model, '')
+    assert.equal((calls[0].response_format as { type: string }).type, 'json_object')
   })
 
-  test('snapshot schema failure falls back to the next provider', async () => {
-    calls.splice(0)
-    aiRoutes.clearAIResponseCacheForTests()
-    aiRoutes.clearAIMetricsForTests()
-    await request(baseUrl, 'POST', '/api/ai/config', {
-      provider: 'auto',
-      apiKey: 'ms-test-key',
-      model: 'moonshotai/Kimi-K2.5',
-    })
-
-    const { response, payload } = await request(baseUrl, 'POST', '/api/ai/snapshot', {
-      bubbles: [{ id: 'b1', content: '第二轮快照不应该退成本地模板', tag: '二轮稳定性' }],
-      categories: [{ name: '二轮稳定性', description: 'schema fallback 验证' }],
-    })
-    const config = await request(baseUrl, 'GET', '/api/ai/config')
-    const snapshotCalls = calls.filter((call) => call.messages[0]?.content.includes('认知负荷优化专家'))
-
-    assert.equal(response.status, 200)
-    assert.equal(payload.success, true)
-    assert.equal(payload.statusSnapshot, '二轮快照通过 fallback provider 形成。')
-    assert.equal(snapshotCalls[0].model, 'moonshotai/Kimi-K2.5')
-    assert.equal(snapshotCalls[1].model, 'deepseek-v4-pro')
-    assert.equal(snapshotCalls[0].max_tokens, 6000)
-    assert.equal(snapshotCalls[1].max_tokens, 6000)
-    assert.match(config.payload.metrics[0].fallbackReason, /schema failed/)
+  test('fast-json followup 命中 AI 响应缓存（同 payload 只调一次）', async () => {
+    calls.length = 0
+    const body = { bubbleContent: '老人吃药提醒', existingBubbles: [], mode: 'single', targetBubbleIds: [] }
+    await request(baseUrl, 'POST', '/api/ai/followup', body)
+    await request(baseUrl, 'POST', '/api/ai/followup', body)
+    assert.equal(calls.length, 1)
   })
 
-  test('snapshot generation does not reuse the AI response cache', async () => {
-    calls.splice(0)
-    aiRoutes.clearAIResponseCacheForTests()
-    await request(baseUrl, 'POST', '/api/ai/config', {
-      provider: 'deepseek',
-      apiKey: 'deepseek-test-key',
-      model: 'deepseek-v4-pro',
-    })
-
-    const payload = {
-      bubbles: [{ id: 'b1', content: '连续生成快照应该重新请求模型', tag: '缓存验证' }],
-      categories: [{ name: '缓存验证', description: '连续快照生成不复用缓存' }],
+  test('snapshot-large 不使用 AI 响应缓存（两次调用两次请求）', async () => {
+    calls.length = 0
+    const body = {
+      bubbles: [{ id: 'b1', content: '老人吃药提醒', tag: '想法' }],
+      categoryLines: [],
+      tagState: { categories: [], tags: [] },
     }
+    await request(baseUrl, 'POST', '/api/ai/snapshot', body)
+    await request(baseUrl, 'POST', '/api/ai/snapshot', body)
+    assert.equal(calls.length, 2)
+  })
 
-    const first = await request(baseUrl, 'POST', '/api/ai/snapshot', payload)
-    const second = await request(baseUrl, 'POST', '/api/ai/snapshot', payload)
-    const snapshotCalls = calls.filter((call) => call.messages[0]?.content.includes('认知负荷优化专家'))
+  test('快照 schema 校验失败直接报错（不再 provider fallback）', async () => {
+    calls.length = 0
+    aiRoutes.setAICompletionOverrideForTests(async () => {
+      calls.push({ attempt: 'schema-fail' })
+      return { choices: [{ message: { content: '{}' } }] }
+    })
+    const { response } = await request(baseUrl, 'POST', '/api/ai/snapshot', {
+      bubbles: [{ id: 'b1', content: '老人吃药提醒', tag: '想法' }],
+      categoryLines: [],
+      tagState: { categories: [], tags: [] },
+    })
+    assert.equal(response.status, 500)
+    assert.equal(calls.length, 1) // 只调用一次：无 fallback 重试
+  })
 
-    assert.equal(first.response.status, 200)
-    assert.equal(second.response.status, 200)
-    assert.equal(snapshotCalls.length, 2)
-    assert.equal(snapshotCalls[0].model, 'deepseek-v4-pro')
-    assert.equal(snapshotCalls[1].model, 'deepseek-v4-pro')
+  test('provider 429 直接失败（无 fallback 链）', async () => {
+    calls.length = 0
+    aiRoutes.setAICompletionOverrideForTests(async () => {
+      calls.push({ attempt: '429' })
+      throw new Error('429 rate limit')
+    })
+    const { response } = await request(baseUrl, 'POST', '/api/ai/categorize', {
+      bubbles: [{ id: 'b1', content: 'x' }],
+      existingTags: [],
+    })
+    assert.equal(response.status, 500)
+    assert.equal(calls.length, 1) // 无 fallback：不重试下一个 provider
   })
 
   try {
+    let failed = 0
     for (const item of tests) {
-      await item.run()
-      console.log(`✓ ${item.name}`)
+      try {
+        await item.run()
+        console.log(`✓ ${item.name}`)
+      } catch (error) {
+        failed += 1
+        console.error(`✗ ${item.name}`)
+        console.error(error)
+      }
+    }
+    if (failed > 0) {
+      process.exitCode = 1
     }
   } finally {
     aiRoutes.setAICompletionOverrideForTests(null)
-    restoreEnv()
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => error ? reject(error) : resolve())
-    })
+    await new Promise<void>((resolve) => server.close(() => resolve()))
   }
 }
 

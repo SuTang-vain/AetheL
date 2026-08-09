@@ -69,38 +69,6 @@ interface StatusMessage {
 
 const providers: ProviderMeta[] = [
   {
-    id: 'auto',
-    name: '自动调用',
-    shortName: '自动',
-    description: '按任务类型、输入规模和可用密钥自动选择模型。',
-    defaultModel: '自动选择',
-    accent: '#246a52',
-  },
-  {
-    id: 'moonshot',
-    name: 'Moonshot (Kimi)',
-    shortName: 'Kimi',
-    description: '适合中文产品分析、追问和长上下文整理。',
-    defaultModel: 'kimi-k2.6',
-    accent: '#ad2c0d',
-  },
-  {
-    id: 'deepseek',
-    name: 'DeepSeek',
-    shortName: 'DeepSeek',
-    description: '适合代码、结构化推理和低成本高频调用。',
-    defaultModel: 'deepseek-v4-pro',
-    accent: '#0f8a9d',
-  },
-  {
-    id: 'modelscope',
-    name: 'ModelScope',
-    shortName: 'ModelScope',
-    description: '适合继续使用当前 ModelScope 托管模型。',
-    defaultModel: 'moonshotai/Kimi-K2.5',
-    accent: '#6d5dfc',
-  },
-  {
     id: 'babel',
     name: 'BabeL-O（本地引擎）',
     shortName: 'BabeL-O',
@@ -144,9 +112,7 @@ function providerLabel(provider: AIProviderSelection) {
   return providers.find((item) => item.id === provider)?.shortName || provider
 }
 
-function configStateLabel(state: 'empty' | 'dirty' | 'synced' | 'pending') {
-  if (state === 'empty') return '等待密钥'
-  if (state === 'dirty') return '有未保存修改'
+function configStateLabel(state: 'synced' | 'pending') {
   if (state === 'synced') return '已应用到后端'
   return '等待保存'
 }
@@ -195,21 +161,13 @@ export default function Settings() {
   const persistence = usePersistenceStore()
   const {
     aiProvider,
-    modelScopeApiKey,
-    deepSeekApiKey,
-    moonshotApiKey,
     currentModel,
-    lastSavedAt,
     lastTestedAt,
     lowPerformanceMode,
     reduceMotion,
     reduceColorLayer,
     setAiProvider,
-    setModelScopeApiKey,
-    setDeepSeekApiKey,
-    setMoonshotApiKey,
     setCurrentModel,
-    markSaved,
     markTested,
     setLowPerformanceMode,
     setReduceMotion,
@@ -218,10 +176,8 @@ export default function Settings() {
 
   const [backendConfig, setBackendConfig] = useState<BackendConfig | null>(null)
   const [isLoadingConfig, setIsLoadingConfig] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null)
-  const [savedSignature, setSavedSignature] = useState('')
   // BabeL-O 模型选择器（M2）
   const [babelModels, setBabelModels] = useState<Array<{
     id: string
@@ -239,58 +195,11 @@ export default function Settings() {
   const activeSectionMeta = settingsSections.find((section) => section.id === activeSection) || settingsSections[0]
 
   const activeProvider = providers.find((provider) => provider.id === aiProvider) || providers[0]
-  const isAutoProvider = aiProvider === 'auto'
-  const isBabel = aiProvider === 'babel'
-  const selectedManualProvider = isAutoProvider ? 'modelscope' : aiProvider
-  const currentApiKey = isBabel
-    ? ''
-    : selectedManualProvider === 'deepseek'
-      ? deepSeekApiKey
-      : selectedManualProvider === 'moonshot'
-        ? moonshotApiKey
-        : modelScopeApiKey
-  const setCurrentApiKey = isBabel
-    ? () => {}
-    : selectedManualProvider === 'deepseek'
-      ? setDeepSeekApiKey
-      : selectedManualProvider === 'moonshot'
-        ? setMoonshotApiKey
-        : setModelScopeApiKey
-
-  const getApiKeyForProvider = (provider: AIProvider) => (
-    provider === 'deepseek'
-      ? deepSeekApiKey
-      : provider === 'moonshot'
-        ? moonshotApiKey
-        : provider === 'babel'
-          ? ''
-          : modelScopeApiKey
-  )
-
-  const formSignature = useMemo(() => (
-    `${aiProvider}|${currentModel.trim()}|${isAutoProvider ? 'auto' : isBabel ? 'babel' : currentApiKey.trim()}`
-  ), [aiProvider, currentApiKey, currentModel, isAutoProvider, isBabel])
-
-  const isDirty = savedSignature.length > 0 && formSignature !== savedSignature
-  const canSave = isAutoProvider || isBabel || (currentApiKey.trim().length > 0 && currentModel.trim().length > 0)
-  const serverMatchesForm = backendConfig
-    ? isAutoProvider
-      ? backendConfig.selection === 'auto'
-      : isBabel
-        ? backendConfig.selection === 'babel' && backendConfig.hasApiKey === true
-        : backendConfig.selection === aiProvider && backendConfig.model === currentModel.trim() && backendConfig.hasApiKey === Boolean(currentApiKey.trim())
-    : false
-  const configState = !isAutoProvider && !isBabel && !currentApiKey.trim()
-    ? 'empty'
-    : isDirty
-      ? 'dirty'
-      : serverMatchesForm
-        ? 'synced'
-        : 'pending'
+  // BabeL-O 是唯一引擎：无服务商切换、无密钥/模型表单
+  const configState = backendConfig?.hasApiKey ? 'synced' : 'pending'
 
   // BabeL-O 模型选择器：读 /api/ai/models（代理 /v1/runtime/models），写 /api/ai/models/select
   const loadBabelModels = useCallback(async () => {
-    if (!isBabel) return
     setModelsLoading(true)
     try {
       const response = await apiFetch('/api/ai/models')
@@ -303,7 +212,7 @@ export default function Settings() {
     } finally {
       setModelsLoading(false)
     }
-  }, [isBabel])
+  }, [])
 
   const selectBabelModel = async (modelId: string) => {
     setSelectingModel(modelId)
@@ -328,8 +237,8 @@ export default function Settings() {
   }
 
   useEffect(() => {
-    if (isBabel) void loadBabelModels()
-  }, [isBabel, loadBabelModels])
+    void loadBabelModels()
+  }, [loadBabelModels])
 
   const activityRows = useMemo(() => {
     const persistenceLabel = persistence.status === 'error'
@@ -348,7 +257,7 @@ export default function Settings() {
         icon: ServerCog,
         title: '后端 AI 运行态',
         detail: backendConfig
-          ? `${backendConfig.selection === 'auto' ? '自动调用 -> ' : ''}${providerLabel(backendConfig.provider)} / ${backendConfig.model} / ${backendConfig.hasApiKey ? '已配置密钥' : '未配置密钥'}`
+          ? `${providerLabel(backendConfig.provider)} / ${backendConfig.model} / ${backendConfig.hasApiKey ? '已配置' : '未配置'}`
           : isLoadingConfig
             ? '正在读取后端配置'
             : '尚未读取到后端配置',
@@ -357,9 +266,9 @@ export default function Settings() {
       {
         id: 'ai-save',
         icon: Save,
-        title: 'AI 配置保存',
-        detail: lastSavedAt ? '浏览器配置已写入后端运行态' : '尚未保存 AI 配置',
-        time: formatDateTime(lastSavedAt),
+        title: 'AI 引擎配置',
+        detail: '由 BabeL-O 管理（BABEL_NEXUS_URL）',
+        time: '—',
       },
       {
         id: 'ai-test',
@@ -383,7 +292,7 @@ export default function Settings() {
         time: formatDateTime(metric.createdAt),
       })) || []),
     ]
-  }, [aiProvider, backendConfig, isLoadingConfig, lastSavedAt, lastTestedAt, persistence.error, persistence.lastSavedAt, persistence.status])
+  }, [aiProvider, backendConfig, isLoadingConfig, lastTestedAt, persistence.error, persistence.lastSavedAt, persistence.status])
 
   const setSection = (section: SettingsSectionKey) => {
     setSearchParams({ section })
@@ -401,19 +310,15 @@ export default function Settings() {
 
         if (data.success && data.provider && data.model) {
           const nextProvider = data.provider as AIProvider
-          const nextSelection = (data.selection || data.provider) as AIProviderSelection
           setBackendConfig({
-            selection: nextSelection,
+            selection: 'babel',
             provider: nextProvider,
             model: String(data.model),
             hasApiKey: Boolean(data.hasApiKey),
             metrics: Array.isArray(data.metrics) ? data.metrics : [],
           })
-          setAiProvider(nextSelection)
-          setCurrentModel(nextSelection === 'auto' ? '自动选择' : String(data.model))
-          setSavedSignature(nextSelection === 'auto'
-            ? 'auto|自动选择|auto'
-            : `${nextProvider}|${String(data.model)}|${data.hasApiKey ? getApiKeyForProvider(nextProvider).trim() : ''}`)
+          setAiProvider('babel')
+          setCurrentModel(String(data.model))
         } else {
           setStatusMessage({
             type: 'error',
@@ -445,69 +350,7 @@ export default function Settings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const saveConfig = async () => {
-    if (!canSave) {
-      setStatusMessage({
-        type: 'error',
-        text: '请先填写 API Key 和模型名称。',
-        actionLabel: '检查 AI 引擎',
-        actionTo: '/settings?section=ai',
-      })
-      return
-    }
-
-    setIsSaving(true)
-    setStatusMessage(null)
-
-    try {
-      const response = await apiFetch('/api/ai/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider: aiProvider,
-          apiKey: isAutoProvider ? undefined : currentApiKey.trim(),
-          model: isAutoProvider ? undefined : currentModel.trim(),
-        }),
-      })
-      const data = await response.json()
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || '保存配置失败')
-      }
-
-      setBackendConfig({
-        selection: aiProvider,
-        provider: isAutoProvider ? (backendConfig?.provider || 'modelscope') : selectedManualProvider,
-        model: isAutoProvider ? (backendConfig?.model || '自动选择') : currentModel.trim(),
-        hasApiKey: isAutoProvider ? Boolean(backendConfig?.hasApiKey) : true,
-        metrics: backendConfig?.metrics || [],
-      })
-      setSavedSignature(formSignature)
-      markSaved()
-      setStatusMessage({ type: 'success', text: isAutoProvider ? '自动调用已应用到后端运行态。' : '配置已保存到后端运行态。' })
-    } catch (error) {
-      setStatusMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : '保存配置失败。',
-        actionLabel: '前往设置中心 / AI 引擎',
-        actionTo: '/settings?section=ai',
-      })
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
   const testConnection = async () => {
-    if (isDirty || !serverMatchesForm) {
-      setStatusMessage({
-        type: 'info',
-        text: '当前表单尚未保存，请先保存配置，再测试后端正在使用的连接。',
-        actionLabel: '检查 AI 引擎',
-        actionTo: '/settings?section=ai',
-      })
-      return
-    }
-
     setIsTesting(true)
     setStatusMessage(null)
 
@@ -553,7 +396,7 @@ export default function Settings() {
             <div className="flex items-center justify-between gap-3 rounded-[16px] bg-white/36 px-3 py-2 ring-1 ring-white/50">
               <span className="text-outline">服务商</span>
               <span className="font-semibold text-on-surface">
-                {isLoadingConfig ? '读取中...' : backendConfig ? `${backendConfig.selection === 'auto' ? '自动 -> ' : ''}${providerLabel(backendConfig.provider)}` : '未知'}
+                {isLoadingConfig ? '读取中...' : backendConfig ? providerLabel(backendConfig.provider) : '未知'}
               </span>
             </div>
             <div className="flex items-center justify-between gap-3 rounded-[16px] bg-white/36 px-3 py-2 ring-1 ring-white/50">
@@ -574,13 +417,13 @@ export default function Settings() {
         <section className="surface-list-card rounded-[24px] p-4">
           <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-on-surface">
             <ShieldCheck size={15} className="text-secondary" />
-            保存策略
+            引擎配置
           </div>
           <p className="text-[12px] leading-5 text-on-surface-variant">
-            API Key 保存在当前浏览器 localStorage；点击保存后写入后端运行态。服务重启后优先读取 `.env`，需要时可再次应用浏览器配置。
+            BabeL-O 是唯一 AI 引擎：服务地址（BABEL_NEXUS_URL）与密钥在服务端 .env 配置，
+            模型与密钥由 BabeL-O 统一管理；AetheL 不保存任何 AI 密钥。
           </p>
           <div className="mt-3 rounded-[16px] bg-white/30 px-3 py-2 text-[11px] leading-4 text-outline ring-1 ring-white/45">
-            <div>最近保存：{formatDateTime(lastSavedAt)}</div>
             <div>最近测试：{formatDateTime(lastTestedAt)}</div>
           </div>
         </section>
@@ -631,105 +474,54 @@ export default function Settings() {
               {activeProvider.name} 配置
             </div>
             <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-              configState === 'dirty'
-                ? 'bg-primary-fixed/50 text-primary'
-                : configState === 'synced'
-                  ? 'bg-secondary-container/50 text-secondary'
-                  : 'bg-white/42 text-outline'
+              configState === 'synced'
+                ? 'bg-secondary-container/50 text-secondary'
+                : 'bg-white/42 text-outline'
             }`}>
               {configStateLabel(configState)}
             </span>
           </div>
 
-          {isAutoProvider && (
-            <div className="rounded-[18px] bg-white/34 px-3 py-3 text-[12px] leading-5 text-on-surface-variant ring-1 ring-white/50">
-              自动调用会根据任务 profile、输入规模和可用密钥选择服务商；手动选择任一服务商后，将覆盖自动策略。
+          <div className="rounded-[18px] bg-white/34 px-3 py-3 text-[12px] leading-5 text-on-surface-variant ring-1 ring-white/50">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="font-semibold text-on-surface">模型选择（由 BabeL-O 管理）</span>
+              {modelsLoading && <span className="text-[11px] text-outline">加载中…</span>}
             </div>
-          )}
-
-          {!isAutoProvider && !isBabel && <div className="grid gap-3 md:grid-cols-[1.15fr_0.85fr]">
-            <label className="block">
-              <span className="mb-1.5 block text-[11px] font-semibold text-outline">API Key</span>
-              <div className="relative">
-                <input
-                  type="password"
-                  value={currentApiKey}
-                  onChange={(event) => {
-                    setCurrentApiKey(event.target.value)
-                    setStatusMessage(null)
-                  }}
-                  placeholder={`输入 ${activeProvider.shortName} API Key`}
-                  className="input-field h-11 w-full pr-12 text-[13px]"
-                />
-                {currentApiKey && (
-                  <button
-                    type="button"
-                    onClick={() => setCurrentApiKey('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-outline transition-colors hover:text-on-surface"
-                  >
-                    清除
-                  </button>
-                )}
-              </div>
-            </label>
-
-            <label className="block">
-              <span className="mb-1.5 block text-[11px] font-semibold text-outline">模型名称</span>
-              <input
-                type="text"
-                value={currentModel}
-                onChange={(event) => {
-                  setCurrentModel(event.target.value)
-                  setStatusMessage(null)
-                }}
-                placeholder={activeProvider.defaultModel}
-                className="input-field h-11 w-full text-[13px]"
-              />
-            </label>
-          </div>}
-
-          {isBabel && (
-            <div className="rounded-[18px] bg-white/34 px-3 py-3 text-[12px] leading-5 text-on-surface-variant ring-1 ring-white/50">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="font-semibold text-on-surface">模型选择（由 BabeL-O 管理）</span>
-                {modelsLoading && <span className="text-[11px] text-outline">加载中…</span>}
-              </div>
-              {!modelsLoading && babelModels.length === 0 && (
-                <p>未获取到模型列表（BABEL_NEXUS_URL 未配置或 BabeL-O 未启动）。</p>
-              )}
-              {babelModels
-                .filter((provider) => provider.authConfigured)
-                .map((provider) => (
-                  <div key={provider.id} className="mb-2 last:mb-0">
-                    <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-outline">
-                      <span>{provider.displayName}</span>
-                      {provider.active && <span className="text-primary">· 当前</span>}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {provider.models.map((model) => {
-                        const isCurrent = provider.active && model.id === provider.defaultModel
-                        return (
-                          <button
-                            key={model.id}
-                            type="button"
-                            disabled={selectingModel !== null}
-                            onClick={() => selectBabelModel(model.id)}
-                            className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-all ${
-                              isCurrent
-                                ? 'bg-primary-fixed/60 text-on-surface ring-1 ring-primary/40'
-                                : 'bg-white/40 ring-1 ring-white/50 hover:bg-primary-fixed/35'
-                            } ${selectingModel === model.id ? 'opacity-60' : ''}`}
-                            title={model.contextWindow ? `context: ${model.contextWindow}` : undefined}
-                          >
-                            {model.name}
-                          </button>
-                        )
-                      })}
-                    </div>
+            {!modelsLoading && babelModels.length === 0 && (
+              <p>未获取到模型列表（BABEL_NEXUS_URL 未配置或 BabeL-O 未启动）。</p>
+            )}
+            {babelModels
+              .filter((provider) => provider.authConfigured)
+              .map((provider) => (
+                <div key={provider.id} className="mb-2 last:mb-0">
+                  <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-outline">
+                    <span>{provider.displayName}</span>
+                    {provider.active && <span className="text-primary">· 当前</span>}
                   </div>
-                ))}
-            </div>
-          )}
+                  <div className="flex flex-wrap gap-1.5">
+                    {provider.models.map((model) => {
+                      const isCurrent = provider.active && model.id === provider.defaultModel
+                      return (
+                        <button
+                          key={model.id}
+                          type="button"
+                          disabled={selectingModel !== null}
+                          onClick={() => selectBabelModel(model.id)}
+                          className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-all ${
+                            isCurrent
+                              ? 'bg-primary-fixed/60 text-on-surface ring-1 ring-primary/40'
+                              : 'bg-white/40 ring-1 ring-white/50 hover:bg-primary-fixed/35'
+                          } ${selectingModel === model.id ? 'opacity-60' : ''}`}
+                          title={model.contextWindow ? `context: ${model.contextWindow}` : undefined}
+                        >
+                          {model.name}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+          </div>
 
           <details className="mt-3 rounded-[18px] bg-white/32 px-3 py-2 text-[12px] text-on-surface-variant ring-1 ring-white/45">
             <summary className="flex cursor-pointer list-none items-center gap-2 text-[12px] font-semibold text-on-surface">
@@ -739,8 +531,8 @@ export default function Settings() {
             <div className="mt-2 grid gap-2 text-[11px] leading-4 md:grid-cols-2">
               <div>
                 <div className="text-outline">Base URL</div>
-                <div className="truncate font-mono text-on-surface" title={isAutoProvider ? '按任务自动选择' : defaultBaseUrls[selectedManualProvider]}>
-                  {isAutoProvider ? '按任务自动选择' : defaultBaseUrls[selectedManualProvider]}
+                <div className="truncate font-mono text-on-surface" title={defaultBaseUrls.babel}>
+                  {defaultBaseUrls.babel}
                 </div>
               </div>
               <div>
@@ -753,17 +545,8 @@ export default function Settings() {
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={saveConfig}
-              disabled={isSaving || !canSave}
-              className="btn-liquid flex h-10 items-center justify-center gap-2 !px-5 disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-              保存配置
-            </button>
-            <button
-              type="button"
               onClick={testConnection}
-              disabled={isTesting || isSaving || !backendConfig?.hasApiKey}
+              disabled={isTesting || !backendConfig?.hasApiKey}
               className="btn-glass flex h-10 items-center justify-center gap-2 !px-5 disabled:cursor-not-allowed disabled:opacity-45"
             >
               {isTesting ? <Loader2 size={14} className="animate-spin" /> : <TestTube2 size={14} />}
@@ -976,9 +759,7 @@ export default function Settings() {
               <span className={`rounded-full px-3 py-1.5 font-semibold ring-1 ${
                 configState === 'synced'
                   ? 'bg-secondary-container/45 text-secondary ring-secondary/15'
-                  : configState === 'dirty'
-                    ? 'bg-primary-fixed/45 text-primary ring-primary/15'
-                    : 'bg-white/38 text-outline ring-white/50'
+                  : 'bg-white/38 text-outline ring-white/50'
               }`}>
                 {configStateLabel(configState)}
               </span>
