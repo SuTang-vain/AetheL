@@ -32,12 +32,12 @@
 2. **无 `response_format` 透传**——AetheL 的 `fast-json`/`snapshot-large` profile 依赖 JSON 模式；
 3. **无 HTTP SSE 出站流**——需在端点内回写 OpenAI chunk 格式；
 4. **无 embedding 端点**（第一期不做，见 §7）；
-5. **刻意不做静默模型 fallback**——AetheL 侧 fallback 链保留。
+5. **刻意不做静默模型 fallback**——BabeL-O 内部重试与失败分类承担稳定性（AetheL 唯一引擎后不再需要跨服务商 fallback 链）。
 
 ## 3. 总体架构
 
 ```
-AetheL (runProfileCompletion / taskProfiles / fallback / JSON 容错)
+AetheL (runProfileCompletion / taskProfiles / JSON 容错)
    │  OpenAI SDK 请求（messages + stream + response_format）
    ▼
 POST /v1/chat/completions（BabeL-O 新增，~150-250 行 + 测试）
@@ -97,7 +97,7 @@ SSE 出站（OpenAI chunk 格式）：`StreamDelta` text → `delta.content`；t
 | `api/routes/memory.ts` | **改接 BabeL-O** `/v1/runtime/memory/*`（MemoryOS），替代现未接线的 ModelScope OpenMemory 代理 |
 | `pages/Settings.tsx` | provider 下拉加"BabeL-O（本地引擎）"；测试连接调 `/v1/health` + `/v1/runtime/models`；模型选择器从 `/v1/runtime/models` 拉取（写入 BabeL-O 配置而非 AetheL） |
 | `.env.example` | `BABEL_NEXUS_URL`（约定 BabeL-O 跑 3100，避开 AetheL Express 3000）+ `BABEL_NEXUS_API_KEY` |
-| 保留 | AetheL 侧 fallback 链、JSON 容错链（stripFencedJson 等）、AI metrics |
+| 保留 | JSON 容错链（stripFencedJson 等）、AI metrics（2026-08-09 唯一引擎决策后已移除跨服务商 fallback 链与三家托管配置） |
 
 ## 6. 测试与验收
 
@@ -106,7 +106,7 @@ SSE 出站（OpenAI chunk 格式）：`StreamDelta` text → `delta.content`；t
 - **验收**：
   - [ ] `AI_PROVIDER=babel` 时快照/工坊/PRD/归类全部可用，SSE 聊天前端无感知
   - [ ] BabeL-O 未启动/未配置时入口隐藏或明确报错，不挂起
-  - [ ] BabeL-O 上游失败（429/5xx）时 AetheL fallback 链生效
+  - [x] BabeL-O 上游失败（429/5xx）时 AetheL 明确报错（唯一引擎后无跨服务商 fallback；重试由 BabeL-O 侧承担）
   - [ ] memory 接口走 BabeL-O MemoryOS
   - [ ] 设置页可拉取模型列表并选择
 
@@ -126,6 +126,7 @@ SSE 出站（OpenAI chunk 格式）：`StreamDelta` text → `delta.content`；t
 - **ADR-B4**：第一期含记忆与模型列表。原因：AetheL 的 memory.ts 本就未接线，BabeL-O MemoryOS 是现成替代；模型选择器是"引擎化"的关键体验。
 - **ADR-B5**：BabeL-O 约定 3100 端口。原因：NEXUS_PORT 默认 3000 与 AetheL Express 冲突。
 - **ADR-B6**：分支更名 `feature/babel-ai-engine`。原因：原 `feature/local-agent-cli-driver` 名称与目标不符。
+- **ADR-B7（2026-08-09 唯一引擎决策）**：移除托管服务商直连（ModelScope/DeepSeek/Moonshot）与跨服务商 fallback 链，BabeL-O 为 AetheL 唯一 AI 引擎。原因：产品收敛——模型/密钥全部由 BabeL-O 管理（ADR-B2 的终态）；设置页只保留 BabeL-O 模型选择器。稳定性由 BabeL-O 内部重试/失败分类承担；上游失败时 AetheL 明确报错。
 
 ## 9. 风险与边界
 
@@ -134,5 +135,5 @@ SSE 出站（OpenAI chunk 格式）：`StreamDelta` text → `delta.content`；t
 | 跨仓库协作（端点需 BabeL-O 仓库 PR） | 开发节奏依赖另一仓库 | 端点设计先行冻结（本文档 §4）；BabeL-O 侧小步快出 |
 | `response_format` 在非 OpenAI 适配器（如 Anthropic）行为 | JSON 任务可能失败 | 第一期只承诺 OpenAI 兼容类 provider；Anthropic 侧转 prompt 指令或明确不支持 |
 | BabeL-O 升级兼容 | 端点契约漂移 | 契约进入 BabeL-O 文档/OpenAPI；升级前 diff |
-| BabeL-O 未运行时 AetheL 不可用 | 功能不可用 | 入口隐藏 + 明确报错；fallback 链保留三家托管 |
+| BabeL-O 未运行时 AetheL 不可用 | 功能不可用 | 入口隐藏 + 明确报错（唯一引擎后不再回退托管商；可用性依赖 BabeL-O 运行） |
 | 无 embedding 能力 | 向量检索不可用 | 第一期不做；M3 评估 EverCore 边车或 provider 能力扩展 |

@@ -1,5 +1,4 @@
-export type AIProvider = 'modelscope' | 'deepseek' | 'moonshot' | 'babel'
-export type AIProviderSelection = AIProvider | 'auto'
+export type AIProvider = 'babel'
 export type AITaskProfile =
   | 'fast-json'
   | 'section-draft'
@@ -25,28 +24,10 @@ export interface AITaskProfileConfig {
   responseFormatJson?: boolean
 }
 
-export const providerOrder: AIProvider[] = ['babel', 'modelscope', 'deepseek', 'moonshot']
-
-export const defaultModels: Record<AIProvider, string> = {
-  modelscope: 'moonshotai/Kimi-K2.5',
-  deepseek: 'deepseek-v4-pro',
-  moonshot: 'kimi-k2.6',
-  // BabeL-O 引擎：模型选择权在 BabeL-O（ADR-B2），AetheL 传空 model，
-  // BabeL-O 按 activeProfile/defaultModel 解析。
-  babel: '',
-}
-
-export const providerBaseURLs: Record<AIProvider, string> = {
-  modelscope: 'https://api-inference.modelscope.cn/v1',
-  deepseek: 'https://api.deepseek.com',
-  moonshot: 'https://api.moonshot.cn/v1',
-  babel: '',
-}
-
 export const taskProfiles: Record<AITaskProfile, AITaskProfileConfig> = {
   'fast-json': {
     profile: 'fast-json',
-    candidates: ['modelscope', 'deepseek', 'moonshot'],
+    candidates: ['babel'],
     maxTokens: 1800,
     timeoutMs: 25_000,
     disableDeepSeekThinking: true,
@@ -56,7 +37,7 @@ export const taskProfiles: Record<AITaskProfile, AITaskProfileConfig> = {
   },
   'section-draft': {
     profile: 'section-draft',
-    candidates: ['modelscope', 'deepseek', 'moonshot'],
+    candidates: ['babel'],
     maxTokens: 2200,
     timeoutMs: 45_000,
     disableDeepSeekThinking: true,
@@ -65,7 +46,7 @@ export const taskProfiles: Record<AITaskProfile, AITaskProfileConfig> = {
   },
   'long-document': {
     profile: 'long-document',
-    candidates: ['moonshot', 'modelscope', 'deepseek'],
+    candidates: ['babel'],
     maxTokens: 8000,
     timeoutMs: 90_000,
     disableDeepSeekThinking: false,
@@ -74,7 +55,7 @@ export const taskProfiles: Record<AITaskProfile, AITaskProfileConfig> = {
   },
   'snapshot-large': {
     profile: 'snapshot-large',
-    candidates: ['modelscope', 'deepseek', 'moonshot'],
+    candidates: ['babel'],
     maxTokens: 6000,
     timeoutMs: 60_000,
     disableDeepSeekThinking: true,
@@ -84,7 +65,7 @@ export const taskProfiles: Record<AITaskProfile, AITaskProfileConfig> = {
   },
   'workshop-transform': {
     profile: 'workshop-transform',
-    candidates: ['modelscope', 'deepseek', 'moonshot'],
+    candidates: ['babel'],
     maxTokens: 2600,
     timeoutMs: 50_000,
     disableDeepSeekThinking: true,
@@ -94,78 +75,25 @@ export const taskProfiles: Record<AITaskProfile, AITaskProfileConfig> = {
   },
 }
 
+/**
+ * BabeL-O 是唯一 AI 引擎（2026-08 产品决策：移除托管服务商直连）。
+ * 配置完全来自环境变量；模型选择权在 BabeL-O（ADR-B2）。
+ */
 export function buildAIConfigsFromEnv(): Record<AIProvider, AIConfig> {
   return {
-    modelscope: {
-      provider: 'modelscope',
-      baseURL: providerBaseURLs.modelscope,
-      apiKey: process.env.MODELSCOPE_API_KEY || '',
-      model: defaultModels.modelscope,
-    },
-    deepseek: {
-      provider: 'deepseek',
-      baseURL: providerBaseURLs.deepseek,
-      apiKey: process.env.DEEPSEEK_API_KEY || '',
-      model: defaultModels.deepseek,
-    },
-    moonshot: {
-      provider: 'moonshot',
-      baseURL: providerBaseURLs.moonshot,
-      apiKey: process.env.MOONSHOT_API_KEY || '',
-      model: defaultModels.moonshot,
-    },
     babel: {
       provider: 'babel',
       baseURL: process.env.BABEL_NEXUS_URL ? `${process.env.BABEL_NEXUS_URL}/v1` : '',
       apiKey: process.env.BABEL_NEXUS_API_KEY || '',
-      model: defaultModels.babel,
+      model: '',
     },
   }
 }
 
-export function resolveAISelectionFromEnv(): AIProviderSelection {
-  const requestedProvider = process.env.AI_PROVIDER as AIProviderSelection | undefined
-  return requestedProvider && (requestedProvider === 'auto' || providerOrder.includes(requestedProvider as AIProvider))
-    ? requestedProvider
-    : 'auto'
-}
-
-export function resolveAIProviderFromEnv(configs: Record<AIProvider, AIConfig>): AIProvider {
-  const selection = resolveAISelectionFromEnv()
-  if (selection !== 'auto') {
-    return selection
-  }
-
-  const providerWithKey = providerOrder.find((provider) => Boolean(configs[provider].apiKey))
-  return providerWithKey || 'modelscope'
-}
-
-export function getAIConfigFromEnv(): AIConfig {
-  const configs = buildAIConfigsFromEnv()
-  return configs[resolveAIProviderFromEnv(configs)]
-}
-
-export function getConfiguredProviders(configs: Record<AIProvider, AIConfig>) {
-  return providerOrder.filter((provider) => Boolean(configs[provider].apiKey))
-}
-
 /**
- * 单 provider 可用性判定：BabeL-O 引擎以 BABEL_NEXUS_URL 为准
- * （本地 daemon 可无鉴权，不要求 BABEL_NEXUS_API_KEY）；托管服务商以 key 为准。
+ * 引擎可用性判定：BABEL_NEXUS_URL 已配置即视为可用
+ * （本地 daemon 可无鉴权，不要求 BABEL_NEXUS_API_KEY）。
  */
 export function isProviderConfigured(config: AIConfig): boolean {
-  if (config.provider === 'babel') return Boolean(config.baseURL)
-  return Boolean(config.apiKey)
-}
-
-export function resolveAutoCandidates(
-  profile: AITaskProfile,
-  configs: Record<AIProvider, AIConfig>,
-) {
-  const configured = new Set(getConfiguredProviders(configs))
-  const candidates = taskProfiles[profile].candidates
-    .filter((provider) => configured.has(provider))
-    .map((provider) => configs[provider])
-
-  return candidates.length > 0 ? candidates : [configs[resolveAIProviderFromEnv(configs)]]
+  return Boolean(config.baseURL)
 }
