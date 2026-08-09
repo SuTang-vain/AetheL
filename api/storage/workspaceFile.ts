@@ -1,5 +1,5 @@
 import { mkdir, readFile } from 'fs/promises'
-import { dataDir, workspaceFilePath } from './paths.js'
+import { dataDir, legacyPaths, type StoragePaths } from './paths.js'
 import { readBubbles, syncBubbleFiles } from './bubbleFiles.js'
 import { readSnapshots, syncSnapshotFiles } from './snapshotFiles.js'
 import { atomicWriteFile } from './atomicWrite.js'
@@ -23,22 +23,23 @@ const emptyWorkspaceFile = (): StoredWorkspaceFile => ({
   updatedAt: new Date().toISOString(),
 })
 
-async function ensureDataDir() {
+async function ensureDataDir(dirs: StoragePaths) {
   await mkdir(dataDir, { recursive: true })
+  await mkdir(dirs.workspaceFilePath.replace(/workspace\.json$/, ''), { recursive: true })
 }
 
-export async function readWorkspaceFile(): Promise<StoredWorkspaceFile> {
-  await ensureDataDir()
+export async function readWorkspaceFile(dirs: StoragePaths = legacyPaths): Promise<StoredWorkspaceFile> {
+  await ensureDataDir(dirs)
   try {
-    const raw = await readFile(workspaceFilePath, 'utf8')
+    const raw = await readFile(dirs.workspaceFilePath, 'utf8')
     return { ...emptyWorkspaceFile(), ...JSON.parse(raw) }
   } catch {
     return emptyWorkspaceFile()
   }
 }
 
-export async function writeWorkspaceFile(workspace: StoredWorkspaceState) {
-  await ensureDataDir()
+export async function writeWorkspaceFile(workspace: StoredWorkspaceState, dirs: StoragePaths = legacyPaths) {
+  await ensureDataDir(dirs)
   const bubbleLayout = workspace.bubbles.reduce<StoredWorkspaceFile['bubbleLayout']>((acc, bubble) => {
     acc[bubble.id] = {
       x: bubble.x,
@@ -65,7 +66,7 @@ export async function writeWorkspaceFile(workspace: StoredWorkspaceState) {
   }
 
   await enqueueWrite('workspace:file', () => (
-    atomicWriteFile(workspaceFilePath, `${JSON.stringify(file, null, 2)}\n`)
+    atomicWriteFile(dirs.workspaceFilePath, `${JSON.stringify(file, null, 2)}\n`)
   ))
 }
 
@@ -88,11 +89,11 @@ function mergeBubbleLayout(bubble: StoredBubble, extensions: StoredBubbleExtensi
   }
 }
 
-export async function readWorkspace(): Promise<StoredWorkspaceState> {
+export async function readWorkspace(dirs: StoragePaths = legacyPaths): Promise<StoredWorkspaceState> {
   const [workspaceFile, bubbleRecords, snapshots] = await Promise.all([
-    readWorkspaceFile(),
-    readBubbles(),
-    readSnapshots(),
+    readWorkspaceFile(dirs),
+    readBubbles(dirs),
+    readSnapshots(dirs),
   ])
 
   const fileExtensions = bubbleRecords.flatMap((record) => record.extensions)
@@ -116,14 +117,14 @@ export async function readWorkspace(): Promise<StoredWorkspaceState> {
   }
 }
 
-export async function writeWorkspace(workspace: StoredWorkspaceState) {
+export async function writeWorkspace(workspace: StoredWorkspaceState, dirs: StoragePaths = legacyPaths) {
   return enqueueWrite('workspace:all', async () => {
-    await ensureDataDir()
+    await ensureDataDir(dirs)
     await Promise.all([
-      writeWorkspaceFile(workspace),
-      syncBubbleFiles(workspace.bubbles || [], workspace.extensions || []),
-      syncSnapshotFiles(workspace.snapshots || []),
+      writeWorkspaceFile(workspace, dirs),
+      syncBubbleFiles(workspace.bubbles || [], workspace.extensions || [], dirs),
+      syncSnapshotFiles(workspace.snapshots || [], dirs),
     ])
-    return readWorkspace()
+    return readWorkspace(dirs)
   })
 }

@@ -1,5 +1,9 @@
 import { strict as assert } from 'node:assert'
 import http from 'node:http'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { authedInit, registerTestUser } from '../helpers/auth.js'
 
 // BabeL-O 唯一引擎的 AI 配置判定测试：
 // - buildAIConfigsFromEnv / isProviderConfigured 的 babel 语义
@@ -33,6 +37,8 @@ function restoreEnv() {
 
 async function main() {
   process.env.NODE_ENV = 'test'
+  const usersDb = path.join(await mkdtemp(path.join(tmpdir(), 'aethel-config-db-')), 'users.db')
+  process.env.AETHEL_USERS_DB = usersDb
   process.env.BABEL_NEXUS_URL = 'http://127.0.0.1:3999'
   process.env.BABEL_NEXUS_API_KEY = 'test-key'
 
@@ -72,10 +78,11 @@ async function main() {
   const server = http.createServer(app)
   await new Promise<void>((resolve) => server.listen(0, resolve))
   const baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  await registerTestUser(baseUrl)
 
   test('GET /api/ai/config：已配置时 provider=babel 且 hasApiKey=true', async () => {
     process.env.BABEL_NEXUS_URL = 'http://127.0.0.1:3999'
-    const response = await fetch(`${baseUrl}/api/ai/config`)
+    const response = await fetch(`${baseUrl}/api/ai/config`, authedInit())
     const data = await response.json()
     assert.equal(response.status, 200)
     assert.equal(data.provider, 'babel')
@@ -84,7 +91,7 @@ async function main() {
 
   test('移除 BABEL_NEXUS_URL 后 hasApiKey=false（实时判定）', async () => {
     delete process.env.BABEL_NEXUS_URL
-    const response = await fetch(`${baseUrl}/api/ai/config`)
+    const response = await fetch(`${baseUrl}/api/ai/config`, authedInit())
     const data = await response.json()
     assert.equal(data.hasApiKey, false)
   })
@@ -106,6 +113,7 @@ async function main() {
     }
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()))
+    await rm(path.dirname(usersDb), { recursive: true, force: true })
     restoreEnv()
   }
 }

@@ -1,17 +1,17 @@
 import { mkdir, readFile, readdir, rename } from 'fs/promises'
 import path from 'path'
-import { safeId, snapshotsDir, trashDir } from './paths.js'
+import { legacyPaths, safeId, type StoragePaths } from './paths.js'
 import { extractJsonBlock, parseMarkdown, stringifyMarkdown } from './markdown.js'
 import { atomicWriteFile } from './atomicWrite.js'
 import { enqueueWrite } from './writeQueue.js'
 import type { StoredSnapshot } from './types.js'
 
-function snapshotPath(id: string) {
-  return path.join(snapshotsDir, `${safeId(id)}.md`)
+function snapshotPath(id: string, dirs: StoragePaths) {
+  return path.join(dirs.snapshotsDir, `${safeId(id)}.md`)
 }
 
-export async function ensureSnapshotDir() {
-  await mkdir(snapshotsDir, { recursive: true })
+export async function ensureSnapshotDir(dirs: StoragePaths = legacyPaths) {
+  await mkdir(dirs.snapshotsDir, { recursive: true })
 }
 
 export function snapshotToMarkdown(snapshot: StoredSnapshot) {
@@ -57,11 +57,11 @@ export function markdownToSnapshot(markdown: string): StoredSnapshot | null {
   return extractJsonBlock<StoredSnapshot>(body, 'aethel-snapshot')
 }
 
-export async function readSnapshots() {
-  await ensureSnapshotDir()
-  const files = (await readdir(snapshotsDir)).filter((file) => file.endsWith('.md')).sort()
+export async function readSnapshots(dirs: StoragePaths = legacyPaths) {
+  await ensureSnapshotDir(dirs)
+  const files = (await readdir(dirs.snapshotsDir)).filter((file) => file.endsWith('.md')).sort()
   const snapshots = await Promise.all(files.map(async (file) => {
-    const markdown = await readFile(path.join(snapshotsDir, file), 'utf8')
+    const markdown = await readFile(path.join(dirs.snapshotsDir, file), 'utf8')
     return markdownToSnapshot(markdown)
   }))
 
@@ -70,18 +70,18 @@ export async function readSnapshots() {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 }
 
-export async function writeSnapshot(snapshot: StoredSnapshot) {
-  await ensureSnapshotDir()
+export async function writeSnapshot(snapshot: StoredSnapshot, dirs: StoragePaths = legacyPaths) {
+  await ensureSnapshotDir(dirs)
   await enqueueWrite(`snapshot:${safeId(snapshot.id)}`, () => (
-    atomicWriteFile(snapshotPath(snapshot.id), snapshotToMarkdown(snapshot))
+    atomicWriteFile(snapshotPath(snapshot.id, dirs), snapshotToMarkdown(snapshot))
   ))
 }
 
-export async function moveSnapshotToTrash(id: string) {
-  await ensureSnapshotDir()
-  await mkdir(path.join(trashDir, 'snapshots'), { recursive: true })
-  const from = snapshotPath(id)
-  const to = path.join(trashDir, 'snapshots', `${safeId(id)}-${Date.now()}.md`)
+export async function moveSnapshotToTrash(id: string, dirs: StoragePaths = legacyPaths) {
+  await ensureSnapshotDir(dirs)
+  await mkdir(path.join(dirs.trashDir, 'snapshots'), { recursive: true })
+  const from = snapshotPath(id, dirs)
+  const to = path.join(dirs.trashDir, 'snapshots', `${safeId(id)}-${Date.now()}.md`)
   await enqueueWrite(`snapshot:${safeId(id)}`, async () => {
     try {
       await rename(from, to)
@@ -91,18 +91,18 @@ export async function moveSnapshotToTrash(id: string) {
   })
 }
 
-export async function syncSnapshotFiles(snapshots: StoredSnapshot[]) {
-  await ensureSnapshotDir()
+export async function syncSnapshotFiles(snapshots: StoredSnapshot[], dirs: StoragePaths = legacyPaths) {
+  await ensureSnapshotDir(dirs)
   const activeIds = new Set(snapshots.map((snapshot) => safeId(snapshot.id)))
-  const files = (await readdir(snapshotsDir)).filter((file) => file.endsWith('.md'))
+  const files = (await readdir(dirs.snapshotsDir)).filter((file) => file.endsWith('.md'))
 
-  await Promise.all(snapshots.map((snapshot) => writeSnapshot(snapshot)))
+  await Promise.all(snapshots.map((snapshot) => writeSnapshot(snapshot, dirs)))
   await Promise.all(files.map(async (file) => {
     const id = file.replace(/\.md$/, '')
     if (activeIds.has(id)) return
-    await mkdir(path.join(trashDir, 'snapshots'), { recursive: true })
+    await mkdir(path.join(dirs.trashDir, 'snapshots'), { recursive: true })
     await enqueueWrite(`snapshot:${id}`, () => (
-      rename(path.join(snapshotsDir, file), path.join(trashDir, 'snapshots', `${id}-${Date.now()}.md`))
+      rename(path.join(dirs.snapshotsDir, file), path.join(dirs.trashDir, 'snapshots', `${id}-${Date.now()}.md`))
     ))
   }))
 }
