@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type AIProvider = 'modelscope' | 'deepseek' | 'moonshot'
+export type AIProvider = 'modelscope' | 'deepseek' | 'moonshot' | 'babel'
 export type AIProviderSelection = AIProvider | 'auto'
 
 interface SettingsState {
@@ -32,12 +32,16 @@ const defaultModels: Record<AIProviderSelection, string> = {
   modelscope: 'moonshotai/Kimi-K2.5',
   deepseek: 'deepseek-v4-pro',
   moonshot: 'kimi-k2.6',
+  // 模型选择权在 BabeL-O（ADR-B2），AetheL 不维护模型名
+  babel: '由 BabeL-O 配置决定',
 }
 
 const defaultBaseUrls: Record<AIProvider, string> = {
   modelscope: 'https://api-inference.modelscope.cn/v1',
   deepseek: 'https://api.deepseek.com',
   moonshot: 'https://api.moonshot.cn/v1',
+  // 实际地址来自服务端 BABEL_NEXUS_URL，前端不持有
+  babel: 'BABEL_NEXUS_URL（服务端环境变量）',
 }
 
 export { defaultBaseUrls }

@@ -149,6 +149,15 @@ export function getConfiguredProviders(configs: Record<AIProvider, AIConfig>) {
   return providerOrder.filter((provider) => Boolean(configs[provider].apiKey))
 }
 
+/**
+ * 单 provider 可用性判定：BabeL-O 引擎以 BABEL_NEXUS_URL 为准
+ * （本地 daemon 可无鉴权，不要求 BABEL_NEXUS_API_KEY）；托管服务商以 key 为准。
+ */
+export function isProviderConfigured(config: AIConfig): boolean {
+  if (config.provider === 'babel') return Boolean(config.baseURL)
+  return Boolean(config.apiKey)
+}
+
 export function resolveAutoCandidates(
   profile: AITaskProfile,
   configs: Record<AIProvider, AIConfig>,

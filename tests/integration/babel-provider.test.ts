@@ -37,7 +37,7 @@ const CATEGORIZE_MOCK = {
 
 async function main() {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'aethel-babel-'))
-  const received: Array<{ body: any }> = []
+  const received: Array<{ body: Record<string, unknown> }> = []
 
   // --- mock BabeL-O /v1/chat/completions ---
   const mockServer = http.createServer((req, res) => {
@@ -150,7 +150,8 @@ async function main() {
     assert.equal(body.categories[0].name, '老年人用药管理')
     assert.deepEqual(body.categories[0].bubbleIds, ['b1', 'b2'])
     assert.equal(body.suggestedTags[0].name, '老年关怀')
-    assert.equal(received[0].body.response_format?.type, 'json_object')
+    const responseFormat = received[0].body.response_format as { type?: string } | undefined
+    assert.equal(responseFormat?.type, 'json_object')
   })
 
   test('chat 流式 SSE 透传（chunk 拼接 + done 终止帧）', async () => {

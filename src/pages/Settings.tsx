@@ -100,6 +100,14 @@ const providers: ProviderMeta[] = [
     defaultModel: 'moonshotai/Kimi-K2.5',
     accent: '#6d5dfc',
   },
+  {
+    id: 'babel',
+    name: 'BabeL-O（本地引擎）',
+    shortName: 'BabeL-O',
+    description: '由 BabeL-O 网关统一管理模型与密钥，AetheL 只消费其 OpenAI 兼容端点。',
+    defaultModel: '由 BabeL-O 配置决定',
+    accent: '#2e7d6b',
+  },
 ]
 
 const settingsSections: Array<{
@@ -221,38 +229,47 @@ export default function Settings() {
 
   const activeProvider = providers.find((provider) => provider.id === aiProvider) || providers[0]
   const isAutoProvider = aiProvider === 'auto'
+  const isBabel = aiProvider === 'babel'
   const selectedManualProvider = isAutoProvider ? 'modelscope' : aiProvider
-  const currentApiKey = selectedManualProvider === 'deepseek'
-    ? deepSeekApiKey
-    : selectedManualProvider === 'moonshot'
-      ? moonshotApiKey
-      : modelScopeApiKey
-  const setCurrentApiKey = selectedManualProvider === 'deepseek'
-    ? setDeepSeekApiKey
-    : selectedManualProvider === 'moonshot'
-      ? setMoonshotApiKey
-      : setModelScopeApiKey
+  const currentApiKey = isBabel
+    ? ''
+    : selectedManualProvider === 'deepseek'
+      ? deepSeekApiKey
+      : selectedManualProvider === 'moonshot'
+        ? moonshotApiKey
+        : modelScopeApiKey
+  const setCurrentApiKey = isBabel
+    ? () => {}
+    : selectedManualProvider === 'deepseek'
+      ? setDeepSeekApiKey
+      : selectedManualProvider === 'moonshot'
+        ? setMoonshotApiKey
+        : setModelScopeApiKey
 
   const getApiKeyForProvider = (provider: AIProvider) => (
     provider === 'deepseek'
       ? deepSeekApiKey
       : provider === 'moonshot'
         ? moonshotApiKey
-        : modelScopeApiKey
+        : provider === 'babel'
+          ? ''
+          : modelScopeApiKey
   )
 
   const formSignature = useMemo(() => (
-    `${aiProvider}|${currentModel.trim()}|${isAutoProvider ? 'auto' : currentApiKey.trim()}`
-  ), [aiProvider, currentApiKey, currentModel, isAutoProvider])
+    `${aiProvider}|${currentModel.trim()}|${isAutoProvider ? 'auto' : isBabel ? 'babel' : currentApiKey.trim()}`
+  ), [aiProvider, currentApiKey, currentModel, isAutoProvider, isBabel])
 
   const isDirty = savedSignature.length > 0 && formSignature !== savedSignature
-  const canSave = isAutoProvider || (currentApiKey.trim().length > 0 && currentModel.trim().length > 0)
+  const canSave = isAutoProvider || isBabel || (currentApiKey.trim().length > 0 && currentModel.trim().length > 0)
   const serverMatchesForm = backendConfig
     ? isAutoProvider
       ? backendConfig.selection === 'auto'
-      : backendConfig.selection === aiProvider && backendConfig.model === currentModel.trim() && backendConfig.hasApiKey === Boolean(currentApiKey.trim())
+      : isBabel
+        ? backendConfig.selection === 'babel' && backendConfig.hasApiKey === true
+        : backendConfig.selection === aiProvider && backendConfig.model === currentModel.trim() && backendConfig.hasApiKey === Boolean(currentApiKey.trim())
     : false
-  const configState = !isAutoProvider && !currentApiKey.trim()
+  const configState = !isAutoProvider && !isBabel && !currentApiKey.trim()
     ? 'empty'
     : isDirty
       ? 'dirty'
@@ -576,7 +593,7 @@ export default function Settings() {
             </div>
           )}
 
-          {!isAutoProvider && <div className="grid gap-3 md:grid-cols-[1.15fr_0.85fr]">
+          {!isAutoProvider && !isBabel && <div className="grid gap-3 md:grid-cols-[1.15fr_0.85fr]">
             <label className="block">
               <span className="mb-1.5 block text-[11px] font-semibold text-outline">API Key</span>
               <div className="relative">
@@ -616,6 +633,13 @@ export default function Settings() {
               />
             </label>
           </div>}
+
+          {isBabel && (
+            <div className="rounded-[18px] bg-white/34 px-3 py-3 text-[12px] leading-5 text-on-surface-variant ring-1 ring-white/50">
+              BabeL-O 引擎：模型与密钥由 BabeL-O 侧统一管理（<span className="font-mono">BABEL_NEXUS_URL</span>），
+              AetheL 不保存密钥；模型切换请在 BabeL-O 配置（<span className="font-mono">bbl config</span>）中完成。
+            </div>
+          )}
 
           <details className="mt-3 rounded-[18px] bg-white/32 px-3 py-2 text-[12px] text-on-surface-variant ring-1 ring-white/45">
             <summary className="flex cursor-pointer list-none items-center gap-2 text-[12px] font-semibold text-on-surface">
