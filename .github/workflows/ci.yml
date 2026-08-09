@@ -12,7 +12,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # node:sqlite（用户管理系统数据库）要求 Node >= 22.13
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run check
