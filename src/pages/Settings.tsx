@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   Activity,
@@ -222,6 +222,17 @@ export default function Settings() {
   const [isTesting, setIsTesting] = useState(false)
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null)
   const [savedSignature, setSavedSignature] = useState('')
+  // BabeL-O 模型选择器（M2）
+  const [babelModels, setBabelModels] = useState<Array<{
+    id: string
+    displayName: string
+    authConfigured: boolean
+    active: boolean
+    defaultModel: string
+    models: Array<{ id: string; name: string; contextWindow?: number }>
+  }>>([])
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const [selectingModel, setSelectingModel] = useState<string | null>(null)
 
   const sectionParam = searchParams.get('section') as SettingsSectionKey | null
   const activeSection = settingsSections.some((section) => section.id === sectionParam) ? sectionParam! : 'ai'
@@ -276,6 +287,49 @@ export default function Settings() {
       : serverMatchesForm
         ? 'synced'
         : 'pending'
+
+  // BabeL-O 模型选择器：读 /api/ai/models（代理 /v1/runtime/models），写 /api/ai/models/select
+  const loadBabelModels = useCallback(async () => {
+    if (!isBabel) return
+    setModelsLoading(true)
+    try {
+      const response = await apiFetch('/api/ai/models')
+      const data = await response.json()
+      if (response.ok && data.success) {
+        setBabelModels(data.providers || [])
+      }
+    } catch {
+      // 网络错误保持空列表，UI 显示未获取到模型列表
+    } finally {
+      setModelsLoading(false)
+    }
+  }, [isBabel])
+
+  const selectBabelModel = async (modelId: string) => {
+    setSelectingModel(modelId)
+    try {
+      const response = await apiFetch('/api/ai/models/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: modelId }),
+      })
+      const data = await response.json()
+      if (response.ok && data.success) {
+        setStatusMessage({ type: 'success', text: `已切换到 ${modelId}` })
+        void loadBabelModels()
+      } else {
+        setStatusMessage({ type: 'error', text: data.error || '模型切换失败' })
+      }
+    } catch {
+      setStatusMessage({ type: 'error', text: '模型切换失败（BabeL-O 不可达）' })
+    } finally {
+      setSelectingModel(null)
+    }
+  }
+
+  useEffect(() => {
+    if (isBabel) void loadBabelModels()
+  }, [isBabel, loadBabelModels])
 
   const activityRows = useMemo(() => {
     const persistenceLabel = persistence.status === 'error'
@@ -636,8 +690,44 @@ export default function Settings() {
 
           {isBabel && (
             <div className="rounded-[18px] bg-white/34 px-3 py-3 text-[12px] leading-5 text-on-surface-variant ring-1 ring-white/50">
-              BabeL-O 引擎：模型与密钥由 BabeL-O 侧统一管理（<span className="font-mono">BABEL_NEXUS_URL</span>），
-              AetheL 不保存密钥；模型切换请在 BabeL-O 配置（<span className="font-mono">bbl config</span>）中完成。
+              <div className="mb-2 flex items-center justify-between">
+                <span className="font-semibold text-on-surface">模型选择（由 BabeL-O 管理）</span>
+                {modelsLoading && <span className="text-[11px] text-outline">加载中…</span>}
+              </div>
+              {!modelsLoading && babelModels.length === 0 && (
+                <p>未获取到模型列表（BABEL_NEXUS_URL 未配置或 BabeL-O 未启动）。</p>
+              )}
+              {babelModels
+                .filter((provider) => provider.authConfigured)
+                .map((provider) => (
+                  <div key={provider.id} className="mb-2 last:mb-0">
+                    <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-outline">
+                      <span>{provider.displayName}</span>
+                      {provider.active && <span className="text-primary">· 当前</span>}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {provider.models.map((model) => {
+                        const isCurrent = provider.active && model.id === provider.defaultModel
+                        return (
+                          <button
+                            key={model.id}
+                            type="button"
+                            disabled={selectingModel !== null}
+                            onClick={() => selectBabelModel(model.id)}
+                            className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-all ${
+                              isCurrent
+                                ? 'bg-primary-fixed/60 text-on-surface ring-1 ring-primary/40'
+                                : 'bg-white/40 ring-1 ring-white/50 hover:bg-primary-fixed/35'
+                            } ${selectingModel === model.id ? 'opacity-60' : ''}`}
+                            title={model.contextWindow ? `context: ${model.contextWindow}` : undefined}
+                          >
+                            {model.name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
             </div>
           )}
 
