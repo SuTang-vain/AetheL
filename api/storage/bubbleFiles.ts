@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, rename } from 'fs/promises'
 import path from 'path'
-import { bubblesDir, safeId, trashDir } from './paths.js'
+import { legacyPaths, safeId, type StoragePaths } from './paths.js'
 import { extractJsonBlock, parseMarkdown, stripFirstHeading, stringifyMarkdown } from './markdown.js'
 import { atomicWriteFile } from './atomicWrite.js'
 import { enqueueWrite } from './writeQueue.js'
@@ -17,12 +17,12 @@ function asNumber(value: unknown, fallback = 0) {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
-function bubblePath(id: string) {
-  return path.join(bubblesDir, `${safeId(id)}.md`)
+function bubblePath(id: string, dirs: StoragePaths) {
+  return path.join(dirs.bubblesDir, `${safeId(id)}.md`)
 }
 
-export async function ensureBubbleDir() {
-  await mkdir(bubblesDir, { recursive: true })
+export async function ensureBubbleDir(dirs: StoragePaths = legacyPaths) {
+  await mkdir(dirs.bubblesDir, { recursive: true })
 }
 
 export function bubbleToMarkdown(bubble: StoredBubble, extensions: StoredBubbleExtension[] = []) {
@@ -106,29 +106,29 @@ export function markdownToBubble(markdown: string): { bubble: StoredBubble; exte
   }
 }
 
-export async function readBubbles() {
-  await ensureBubbleDir()
-  const files = (await readdir(bubblesDir)).filter((file) => file.endsWith('.md')).sort()
+export async function readBubbles(dirs: StoragePaths = legacyPaths) {
+  await ensureBubbleDir(dirs)
+  const files = (await readdir(dirs.bubblesDir)).filter((file) => file.endsWith('.md')).sort()
   const results = await Promise.all(files.map(async (file) => {
-    const markdown = await readFile(path.join(bubblesDir, file), 'utf8')
+    const markdown = await readFile(path.join(dirs.bubblesDir, file), 'utf8')
     return markdownToBubble(markdown)
   }))
 
   return results.filter((result): result is NonNullable<typeof result> => Boolean(result))
 }
 
-export async function writeBubble(bubble: StoredBubble, extensions: StoredBubbleExtension[] = []) {
-  await ensureBubbleDir()
+export async function writeBubble(bubble: StoredBubble, extensions: StoredBubbleExtension[] = [], dirs: StoragePaths = legacyPaths) {
+  await ensureBubbleDir(dirs)
   await enqueueWrite(`bubble:${safeId(bubble.id)}`, () => (
-    atomicWriteFile(bubblePath(bubble.id), bubbleToMarkdown(bubble, extensions))
+    atomicWriteFile(bubblePath(bubble.id, dirs), bubbleToMarkdown(bubble, extensions))
   ))
 }
 
-export async function moveBubbleToTrash(id: string) {
-  await ensureBubbleDir()
-  await mkdir(path.join(trashDir, 'bubbles'), { recursive: true })
-  const from = bubblePath(id)
-  const to = path.join(trashDir, 'bubbles', `${safeId(id)}-${Date.now()}.md`)
+export async function moveBubbleToTrash(id: string, dirs: StoragePaths = legacyPaths) {
+  await ensureBubbleDir(dirs)
+  await mkdir(path.join(dirs.trashDir, 'bubbles'), { recursive: true })
+  const from = bubblePath(id, dirs)
+  const to = path.join(dirs.trashDir, 'bubbles', `${safeId(id)}-${Date.now()}.md`)
   await enqueueWrite(`bubble:${safeId(id)}`, async () => {
     try {
       await rename(from, to)
@@ -138,24 +138,25 @@ export async function moveBubbleToTrash(id: string) {
   })
 }
 
-export async function syncBubbleFiles(bubbles: StoredBubble[], extensions: StoredBubbleExtension[]) {
-  await ensureBubbleDir()
+export async function syncBubbleFiles(bubbles: StoredBubble[], extensions: StoredBubbleExtension[], dirs: StoragePaths = legacyPaths) {
+  await ensureBubbleDir(dirs)
   const activeIds = new Set(bubbles.map((bubble) => safeId(bubble.id)))
-  const files = (await readdir(bubblesDir)).filter((file) => file.endsWith('.md'))
+  const files = (await readdir(dirs.bubblesDir)).filter((file) => file.endsWith('.md'))
 
   await Promise.all(bubbles.map((bubble) => (
     writeBubble(
       bubble,
       extensions.filter((extension) => extension.bubbleId === bubble.id),
+      dirs,
     )
   )))
 
   await Promise.all(files.map(async (file) => {
     const id = file.replace(/\.md$/, '')
     if (activeIds.has(id)) return
-    await mkdir(path.join(trashDir, 'bubbles'), { recursive: true })
+    await mkdir(path.join(dirs.trashDir, 'bubbles'), { recursive: true })
     await enqueueWrite(`bubble:${id}`, () => (
-      rename(path.join(bubblesDir, file), path.join(trashDir, 'bubbles', `${id}-${Date.now()}.md`))
+      rename(path.join(dirs.bubblesDir, file), path.join(dirs.trashDir, 'bubbles', `${id}-${Date.now()}.md`))
     ))
   }))
 }

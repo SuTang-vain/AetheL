@@ -28,6 +28,10 @@ dist-ssr
 !.env.example
 
 # Aethel runtime workspace data
+# 用户管理系统运行数据（SQLite 用户库 + 用户工作区）
+/data/users.db
+/data/users/*
+!/data/users/.gitkeep
 /data/bubbles/*
 /data/snapshots/*
 /data/.trash/*

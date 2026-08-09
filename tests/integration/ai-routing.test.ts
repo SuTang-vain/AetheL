@@ -1,5 +1,9 @@
 import { strict as assert } from 'node:assert'
 import http from 'node:http'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { authedInit, registerTestUser } from '../helpers/auth.js'
 
 // BabeL-O 唯一引擎的路由语义测试：
 // - 归类/快照请求携带 response_format=json_object 且 model 为空（ADR-B2）
@@ -32,17 +36,18 @@ async function listen(app: http.RequestListener) {
 }
 
 async function request(baseUrl: string, method: string, pathname: string, body?: unknown) {
-  const response = await fetch(`${baseUrl}${pathname}`, {
+  const response = await fetch(`${baseUrl}${pathname}`, authedInit({
     method,
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
-  })
+  }))
   const payload = await response.json()
   return { response, payload }
 }
 
 async function main() {
   process.env.NODE_ENV = 'test'
+  process.env.AETHEL_USERS_DB = path.join(await mkdtemp(path.join(tmpdir(), 'aethel-routing-db-')), 'users.db')
   process.env.BABEL_NEXUS_URL = 'http://127.0.0.1:3999'
   process.env.BABEL_NEXUS_API_KEY = 'test-key'
 
@@ -91,6 +96,7 @@ async function main() {
   })
 
   const { server, baseUrl } = await listen(app)
+  await registerTestUser(baseUrl)
 
   test('归类请求：response_format=json_object 且 model 为空（ADR-B2）', async () => {
     calls.length = 0

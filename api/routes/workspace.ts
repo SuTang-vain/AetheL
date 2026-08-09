@@ -1,12 +1,13 @@
 import { Router, type Request, type Response } from 'express'
 import { readWorkspace, writeWorkspace } from '../storage/workspaceFile.js'
+import { userDataPaths } from '../storage/paths.js'
 import type { StoredWorkspaceState } from '../storage/types.js'
 
 const router = Router()
 
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const workspace = await readWorkspace()
+    const workspace = await readWorkspace(userDataPaths(req.user!.email))
     res.json({ success: true, workspace })
   } catch (error: unknown) {
     console.error('Workspace read error:', error)
@@ -22,7 +23,7 @@ router.patch('/', async (req: Request, res: Response) => {
       return
     }
 
-    const nextWorkspace = await writeWorkspace(workspace)
+    const nextWorkspace = await writeWorkspace(workspace, userDataPaths(req.user!.email))
     res.json({ success: true, workspace: nextWorkspace })
   } catch (error: unknown) {
     console.error('Workspace write error:', error)

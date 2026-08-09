@@ -11,6 +11,10 @@ import memoryRoutes from './routes/memory.js'
 import bubbleRoutes from './routes/bubbles.js'
 import snapshotRoutes from './routes/snapshots.js'
 import workspaceRoutes from './routes/workspace.js'
+import authRoutes from './routes/auth.js'
+import adminRoutes from './routes/admin.js'
+import { requireAuth } from './middleware/auth.js'
+import { incrementUsage } from './db/usersDb.js'
 
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -29,6 +33,26 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 // 托管前端静态文件
 const distPath = path.join(__dirname, '../dist')
 app.use(express.static(distPath))
+
+// 用户认证与管理员
+app.use('/api/auth', authRoutes)
+app.use('/api/admin', adminRoutes)
+
+// 用户数据路由全部要求登录（按用户隔离）
+app.use('/api/ai', requireAuth)
+app.use('/api/ai', (req: Request, res: Response, next: NextFunction) => {
+  // AI 调用用量统计（成功响应计数）
+  res.on('finish', () => {
+    if (res.statusCode < 400 && req.user) {
+      incrementUsage(req.user.email, 'ai_calls')
+    }
+  })
+  next()
+})
+app.use('/api/memory', requireAuth)
+app.use('/api/bubbles', requireAuth)
+app.use('/api/snapshots', requireAuth)
+app.use('/api/workspace', requireAuth)
 
 app.use('/api/ai', aiRoutes)
 app.use('/api/ai', modelsRoutes)

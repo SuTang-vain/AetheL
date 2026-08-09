@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { mkdtemp, rm } from 'node:fs/promises'
+import { authedInit, registerTestUser } from '../helpers/auth.js'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -89,6 +90,7 @@ async function main() {
   // --- env 先行，再动态加载 app ---
   process.env.NODE_ENV = 'test'
   process.env.AETHEL_DATA_DIR = dataDir
+  process.env.AETHEL_USERS_DB = path.join(dataDir, 'users.db')
   process.env.AI_PROVIDER = 'babel'
   process.env.BABEL_NEXUS_URL = mockBase
   process.env.BABEL_NEXUS_API_KEY = 'test-key'
@@ -97,13 +99,14 @@ async function main() {
   const server = http.createServer(app)
   await new Promise<void>((resolve) => server.listen(0, resolve))
   const baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  await registerTestUser(baseUrl)
 
   async function post(pathname: string, body: unknown) {
-    const response = await fetch(`${baseUrl}${pathname}`, {
+    const response = await fetch(`${baseUrl}${pathname}`, authedInit({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    })
+    }))
     const text = await response.text()
     let payload: unknown = text
     try {
@@ -156,11 +159,11 @@ async function main() {
 
   test('chat 流式 SSE 透传（chunk 拼接 + done 终止帧）', async () => {
     received.length = 0
-    const response = await fetch(`${baseUrl}/api/ai/chat`, {
+    const response = await fetch(`${baseUrl}/api/ai/chat`, authedInit({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: [{ role: 'user', content: '流式' }], stream: true }),
-    })
+    }))
     assert.equal(response.status, 200)
     const raw = await response.text()
     const chunks = raw.split('\n\n').filter((line) => line.startsWith('data: '))

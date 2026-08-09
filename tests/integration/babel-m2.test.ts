@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { mkdtemp, rm } from 'node:fs/promises'
+import { authedInit, registerTestUser } from '../helpers/auth.js'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -121,6 +122,7 @@ async function main() {
   // --- env 先行，再动态加载 app ---
   process.env.NODE_ENV = 'test'
   process.env.AETHEL_DATA_DIR = dataDir
+  process.env.AETHEL_USERS_DB = path.join(dataDir, 'users.db')
   process.env.AI_PROVIDER = 'babel'
   process.env.BABEL_NEXUS_URL = mockBase
   process.env.BABEL_NEXUS_API_KEY = 'test-key'
@@ -129,9 +131,10 @@ async function main() {
   const server = http.createServer(app)
   await new Promise<void>((resolve) => server.listen(0, resolve))
   const baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  await registerTestUser(baseUrl)
 
   async function request(pathname: string, init?: RequestInit) {
-    const response = await fetch(`${baseUrl}${pathname}`, init)
+    const response = await fetch(`${baseUrl}${pathname}`, authedInit(init))
     const text = await response.text()
     let payload: unknown = text
     try {
@@ -236,11 +239,11 @@ async function main() {
     await new Promise<void>((resolve) => server2.listen(0, resolve))
     const base2 = `http://127.0.0.1:${(server2.address() as { port: number }).port}`
     try {
-      const r1 = await fetch(`${base2}/api/ai/models`)
+      const r1 = await fetch(`${base2}/api/ai/models`, authedInit())
       const p1 = (await r1.json()) as { code: string }
       assert.equal(r1.status, 503)
       assert.equal(p1.code, 'BABEL_NOT_CONFIGURED')
-      const r2 = await fetch(`${base2}/api/memory/search?query=x`)
+      const r2 = await fetch(`${base2}/api/memory/search?query=x`, authedInit())
       const p2 = (await r2.json()) as { code: string }
       assert.equal(r2.status, 503)
       assert.equal(p2.code, 'MEMORY_UNAVAILABLE')

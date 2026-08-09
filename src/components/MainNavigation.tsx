@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, NavLink, useLocation } from 'react-router-dom'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   Activity,
   AlertCircle,
@@ -10,13 +10,16 @@ import {
   Globe2,
   HelpCircle,
   Loader2,
+  LogOut,
   MessageSquare,
   MoreHorizontal,
   Puzzle,
   Settings2,
+  ShieldCheck,
   Sparkles,
 } from 'lucide-react'
 import { usePersistenceStore } from '@/stores/persistenceStore'
+import { useAuthStore } from '@/stores/authStore'
 
 const navItems = [
   { to: '/', icon: Sparkles, label: '灵感气泡' },
@@ -25,11 +28,20 @@ const navItems = [
   { to: '/workshop', icon: Puzzle, label: '工坊' },
 ]
 
+const SUBSCRIPTION_LABELS: Record<string, string> = {
+  free: '免费版',
+  pro: 'Pro 个人版',
+  team: 'Team 团队版',
+}
+
 export default function MainNavigation() {
   const location = useLocation()
+  const navigate = useNavigate()
   const menuRef = useRef<HTMLDivElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const { status, error, lastSavedAt } = usePersistenceStore()
+  const user = useAuthStore((state) => state.user)
+  const logout = useAuthStore((state) => state.logout)
   const isBusy = status === 'loading' || status === 'saving'
   const StatusIcon = status === 'error' ? AlertCircle : isBusy ? Loader2 : CheckCircle2
   const statusLabel = status === 'error'
@@ -163,6 +175,20 @@ export default function MainNavigation() {
                     </Link>
                   )
                 })}
+                {user?.role === 'admin' && (
+                  <Link
+                    to="/admin"
+                    onClick={() => setMenuOpen(false)}
+                    className={`flex h-9 items-center gap-2 rounded-full px-3 text-[12px] font-semibold transition-all ${
+                      location.pathname === '/admin'
+                        ? 'bg-primary text-on-primary shadow-glow-primary'
+                        : 'text-on-surface hover:bg-primary-fixed/30 hover:text-primary'
+                    }`}
+                  >
+                    <ShieldCheck size={14} />
+                    <span>管理员控制台</span>
+                  </Link>
+                )}
               </div>
 
               <div className="my-1.5 h-px bg-on-surface/8" />
@@ -183,6 +209,30 @@ export default function MainNavigation() {
                   </a>
                 ))}
               </div>
+
+              {user && (
+                <div className="mt-1.5 rounded-[20px] bg-white/58 px-3 py-2.5 ring-1 ring-white/60">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-on-surface" title={user.email}>
+                      {user.email}
+                    </span>
+                    <span className="shrink-0 rounded-full bg-secondary-container/55 px-2 py-0.5 text-[10px] font-semibold text-secondary">
+                      {SUBSCRIPTION_LABELS[user.subscription] || user.subscription}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      void logout().then(() => navigate('/login'))
+                    }}
+                    className="mt-2 flex h-8 w-full items-center justify-center gap-1.5 rounded-full bg-white/62 text-[11px] font-semibold text-on-surface transition-colors hover:bg-error-container/40 hover:text-error"
+                  >
+                    <LogOut size={12} />
+                    退出登录
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}

@@ -5,6 +5,7 @@ import http from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { apiFetch } from '../../src/lib/apiClient.js'
+import { authedInit, registerTestUser } from '../helpers/auth.js'
 import { requestSnapshotCognition, SNAPSHOT_BACKEND_ERROR_MESSAGE } from '../../src/lib/snapshotCognition.js'
 
 type TestCase = {
@@ -32,11 +33,11 @@ async function listen(app: http.RequestListener) {
 }
 
 async function request(baseUrl: string, method: string, pathname: string, body?: unknown) {
-  const response = await fetch(`${baseUrl}${pathname}`, {
+  const response = await fetch(`${baseUrl}${pathname}`, authedInit({
     method,
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
-  })
+  }))
   const contentType = response.headers.get('content-type') || ''
   const payload = contentType.includes('application/json') ? await response.json() : await response.text()
   return { response, payload }
@@ -46,6 +47,7 @@ async function main() {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'aethel-p0-'))
   process.env.NODE_ENV = 'test'
   process.env.AETHEL_DATA_DIR = dataDir
+  process.env.AETHEL_USERS_DB = path.join(dataDir, 'users.db')
 
   const aiRoutes = await import('../../api/routes/ai.js')
   const { default: app } = await import('../../api/app.js')
@@ -189,6 +191,7 @@ async function main() {
   })
 
   const { server, baseUrl } = await listen(app)
+  await registerTestUser(baseUrl, 'p0@aethel.local')
 
   test('workspace APIs write runtime data into the configured temp data dir', async () => {
     const { response, payload } = await request(baseUrl, 'POST', '/api/bubbles', {
@@ -203,8 +206,8 @@ async function main() {
     assert.equal(response.status, 201)
     assert.equal(payload.success, true)
     assert.equal(payload.bubble.id, 'b1')
-    assert.equal(existsSync(path.join(dataDir, 'bubbles', 'b1.md')), true)
-    assert.equal(existsSync(path.join(dataDir, 'workspace.json')), true)
+    assert.equal(existsSync(path.join(dataDir, 'users', 'p0_aethel_local', 'bubbles', 'b1.md')), true)
+    assert.equal(existsSync(path.join(dataDir, 'users', 'p0_aethel_local', 'workspace.json')), true)
   })
 
   test('workshop skill keeps the original idea as the first generated bubble', async () => {
