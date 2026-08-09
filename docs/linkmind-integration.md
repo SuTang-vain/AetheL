@@ -244,12 +244,12 @@ LinkMind `DemoAgentRuntime`（`nextDecision`/`chat`/`recordFeedback`）对 Aethe
 - **ADR-3**：LinkMind 约定 3100 端口。原因：Next.js 默认 3000 与 AetheL Express 冲突。
 - **ADR-4**：证据/推断/不确定 → 三类气泡 + `extensions.source`。原因：对齐画布既有语义（问题/风险/证据标签）与 `ExternalEvidenceSource` 草案，来源可追溯。
 - **ADR-5**：导入链路"先落气泡、再进快照"。原因：气泡是主工作区，快照是记忆层；P0 只做气泡，快照增强（P1）在气泡稳定后做。
-- **ADR-6**：AetheL 自身 LLM 引擎增加"本地 Agent CLI 驱动"能力（Claude Code / Codex / ZCode），独立设计见 `docs/local-agent-cli-driver.md`。与 LinkMind 集成并行推进，二者在 `isAIProviderConfigured` 判定重构处汇合。
+- **ADR-6**：AetheL 自身 LLM 引擎改为以 BabeL-O 作为 AI 驱动引擎（壳中客同品牌项目），独立设计见 `docs/babel-ai-engine.md`（原"本地 Agent CLI 驱动"方案已废弃）。与 LinkMind 集成并行推进，二者在 `isAIProviderConfigured` 判定重构处汇合。
 
-## 12. 关联方案：本地 Agent CLI 驱动
+## 12. 关联方案：BabeL-O AI 引擎
 
-AetheL 的 LLM 驱动层将支持通过本地 CLI 调用本地 agent（Claude Code / Codex / ZCode），作为与 ModelScope/DeepSeek/Moonshot 并列的 provider（详见 [local-agent-cli-driver.md](./local-agent-cli-driver.md)）。与本文档的协同点：
+AetheL 的 LLM 驱动层将改以 BabeL-O（壳中客同品牌终端 agent）作为 AI 引擎，新增 OpenAI 兼容 `/v1/chat/completions` 端点供 AetheL 接入（详见 [babel-ai-engine.md](./babel-ai-engine.md)）。与本文档的协同点：
 
-1. P0 的"蒸馏结果 → 候选气泡"转换是轻量任务，用户配置本地 agent 时可本地执行，省 API 配额；
-2. 本地 agent 可作为 LinkMind 不可达时的降级证据整理器（仅整理已有材料，不替代 LinkMind 采集管线）；
-3. 两方案共用 `isAIProviderConfigured` 判定重构，建议本地 agent M1 优先落地，再做 LinkMind P0 的 412 守卫调整。
+1. P0 的"蒸馏结果 → 候选气泡"转换等轻量任务走 BabeL-O 引擎，统一收敛 LLM 调用；
+2. 转换层经 BabeL-O 上游失败时，AetheL 保留现有 fallback 链（三家托管）；
+3. 两方案共用 `isAIProviderConfigured` 判定重构，建议 BabeL-O 引擎 M1 优先落地，再做 LinkMind P0 的 412 守卫调整。
