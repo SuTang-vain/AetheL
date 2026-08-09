@@ -6,6 +6,7 @@ import express, {
 import cors from 'cors'
 import dotenv from 'dotenv'
 import aiRoutes from './routes/ai.js'
+import modelsRoutes from './routes/models.js'
 import memoryRoutes from './routes/memory.js'
 import bubbleRoutes from './routes/bubbles.js'
 import snapshotRoutes from './routes/snapshots.js'
@@ -30,6 +31,7 @@ const distPath = path.join(__dirname, '../dist')
 app.use(express.static(distPath))
 
 app.use('/api/ai', aiRoutes)
+app.use('/api/ai', modelsRoutes)
 app.use('/api/memory', memoryRoutes)
 app.use('/api/bubbles', bubbleRoutes)
 app.use('/api/snapshots', snapshotRoutes)
